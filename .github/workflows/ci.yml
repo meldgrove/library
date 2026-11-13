@@ -97,7 +97,7 @@ jobs:
           docker run -d --name keycloak -p 8094:8080 \
             -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
             -v "$PWD/dev/keycloak:/opt/keycloak/data/import:ro" \
-            quay.io/keycloak/keycloak:26.8.2-2 start-dev --import-realm --http-port=8080
+            quay.io/keycloak/keycloak:26.6.1 start-dev --import-realm --http-port=8080
       - run: npm ci --no-audit --no-fund
       - run: npx playwright install --with-deps chromium
       - run: npm run build
