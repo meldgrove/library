@@ -149,6 +149,10 @@ Pull requests that change the `Dockerfile`, `.dockerignore`,
 `docker-entrypoint.sh`, or the workflow build and start both images without
 publishing. Release images set `APP_VERSION`: `/-/healthz` reports it, and
 Sentry names the release `library@X.Y.Z` unless `SENTRY_RELEASE` is set.
+Releases also upload the source maps of the web process and the worker to the
+Sentry project in `release.yml` (`SENTRY_ORG`, `SENTRY_PROJECT`), so its stack
+traces show the TypeScript files; without the `SENTRY_AUTH_TOKEN` secret, the
+run warns and uploads nothing.
 
 ### Repository settings
 
@@ -164,6 +168,9 @@ Sentry names the release `library@X.Y.Z` unless `SENTRY_RELEASE` is set.
 - **Protected `main`:** releases push only a tag, so a ruleset that requires
   pull requests on `main` needs no bypass actor. Do not restrict creating
   `v*` tags: the workflow pushes them with its own token.
+- **Sentry token:** an organization auth token from Sentry (**Settings** →
+  **Auth Tokens**), stored as the Actions secret `SENTRY_AUTH_TOKEN`. Only
+  release runs read it.
 - **Code owners:** `.github/CODEOWNERS` assigns `.github/` (workflows and
   release settings) to the `maintainers` team, so a pull request that
   changes it asks the team for review. The team needs write access to the

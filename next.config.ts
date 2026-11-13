@@ -17,6 +17,9 @@ const nextConfig: NextConfig = {
   // Kept out of the server bundle: they use Node APIs and dynamic requires.
   serverExternalPackages: ["pg", "pg-boss", "pino"],
   turbopack: {
+    // Debug IDs in the bundles and their source maps: Sentry matches an
+    // error's frames to the uploaded maps by them (scripts/sentry-sourcemaps.mjs).
+    debugIds: true,
     rules: {
       "*.css": {
         loaders: ["@tailwindcss/turbopack"],

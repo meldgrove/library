@@ -15,6 +15,18 @@ RUN npm ci --no-audit --no-fund
 FROM deps AS build
 COPY . .
 RUN npm run build
+# Release builds upload the source maps of the web process and the worker to
+# Sentry, which matches them to errors by the bundles' debug IDs
+# (next.config.ts, scripts/build-scripts.mjs). Without the token, nothing is
+# uploaded.
+ARG SENTRY_ORG=""
+ARG SENTRY_PROJECT=""
+RUN --mount=type=secret,id=sentry_auth_token,env=SENTRY_AUTH_TOKEN \
+    if [ -n "$SENTRY_AUTH_TOKEN" ]; then \
+      export SENTRY_CLI_NO_TELEMETRY=1 SENTRY_CLI_NO_UPDATE_CHECK=1 \
+      && node_modules/.bin/sentry sourcemap upload .next/server \
+      && node_modules/.bin/sentry sourcemap upload dist; \
+    fi
 
 FROM base AS runtime
 # Text recognition for scanned PDFs (OCR_COMMAND=ocrmypdf), German and English.

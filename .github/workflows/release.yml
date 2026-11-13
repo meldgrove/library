@@ -60,6 +60,10 @@ env:
   DESCRIPTION: A self-hosted shared reading library with AI-drafted, human-checked source notes.
   # SPDX identifier; empty when the repository has no license yet.
   LICENSE: ""
+  # Sentry project that releases upload their source maps to, with the
+  # SENTRY_AUTH_TOKEN secret (an organization token); empty uploads nothing.
+  SENTRY_ORG: meldgrove
+  SENTRY_PROJECT: library
 
 defaults:
   run:
@@ -230,6 +234,8 @@ jobs:
           persist-credentials: false
 
       - name: Build
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: |
           # A BuildKit container: it can push an image by its digest alone.
           docker buildx create --use --driver docker-container > /dev/null
@@ -243,6 +249,16 @@ jobs:
             --label "org.opencontainers.image.created=$(git log -1 --format=%cI)")
           if [ -n "$TARGET" ]; then
             args+=(--target "$TARGET")
+          fi
+          # Only releases upload source maps; the build reads the token as a
+          # secret, so it stays out of the image and the build arguments.
+          if [ "$PUBLISH" = true ] && [ -n "$SENTRY_PROJECT" ]; then
+            if [ -n "$SENTRY_AUTH_TOKEN" ]; then
+              args+=(--secret id=sentry_auth_token,env=SENTRY_AUTH_TOKEN
+                --build-arg "SENTRY_ORG=$SENTRY_ORG" --build-arg "SENTRY_PROJECT=$SENTRY_PROJECT")
+            else
+              echo "::warning::The SENTRY_AUTH_TOKEN secret is not set: this release's source maps are not uploaded to Sentry."
+            fi
           fi
           printf '%s\n' "${args[@]}" > "$RUNNER_TEMP/build-args"
           docker buildx build "${args[@]}" --output type=docker,name=release:test .
@@ -261,6 +277,7 @@ jobs:
         if: env.PUBLISH == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: |
           echo "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           mapfile -t args < "$RUNNER_TEMP/build-args"
