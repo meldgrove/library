@@ -1,0 +1,10 @@
+#!/bin/sh
+# Stands in for ocrmypdf in tests: writes a sidecar like `ocrmypdf --skip-text
+# --sidecar`, with the first page skipped (it has text) and the second page
+# recognised. Arguments: --skip-text --sidecar <file> -l <langs> --output-type pdf <in> <out>
+sidecar=""
+while [ $# -gt 0 ]; do
+  if [ "$1" = "--sidecar" ]; then sidecar="$2"; shift; fi
+  shift
+done
+printf '[OCR skipped on page(s) 1]\fRecommendations from the scanned page\nFederal programs should fund staff.\n' > "$sidecar"

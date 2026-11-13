@@ -1,0 +1,12 @@
+Authentication-Results: mx.google.com;
+       dkim=pass header.i=@example.org header.s=google header.b=XyZ;
+       spf=neutral (google.com: 192.0.2.20 is neither permitted nor denied) smtp.mailfrom=dan@example.org
+Message-ID: <html-1@mail.example.org>
+Date: Thu, 12 Nov 2026 10:00:00 +0100
+From: Dan Decider <dan@example.org>
+To: library@example.org
+Subject: RE: AW:
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><body><p>Good overview of municipal funding rules</p><p><a href="https://funding.example.com/guide">The guide</a></p></body></html>

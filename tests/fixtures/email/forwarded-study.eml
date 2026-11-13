@@ -1,0 +1,79 @@
+Return-Path: <ada@example.org>
+Delivered-To: library@example.org
+Authentication-Results: mx.mail.example.net;
+	dkim=pass (2048-bit key; unprotected) header.d=example.org header.i=@example.org header.b="AbCd1234";
+	spf=pass (mx.mail.example.net: domain of ada@example.org designates 192.0.2.10 as permitted sender) smtp.mailfrom=ada@example.org;
+	dmarc=pass (p=quarantine dis=none) header.from=example.org
+Authentication-Results: forged.example; dkim=fail header.d=example.org
+Message-ID: <study-1@mail.example.org>
+Date: Thu, 12 Nov 2026 09:15:00 +0100
+From: Ada Author <Ada@Example.org>
+To: Library <library@example.org>
+Subject: Fwd: Numbers on heat in small towns
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mixed-boundary"
+
+--mixed-boundary
+Content-Type: multipart/related; boundary="related-boundary"
+
+--related-boundary
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+Hi library,
+
+the study is attached, and the article is here:
+https://www.example.com/articles/heat-small-towns?utm_source=newsletter.
+Our own page https://www.example.org/projects/heat is not external.
+
+-- 
+Ada Author · Example Association
+https://www.example.org | https://social.example.net/@ada
+
+---------- Forwarded message ---------
+> https://quoted.example.com/should-not-count
+
+--related-boundary
+Content-Type: image/png; name="logo.png"
+Content-Disposition: inline; filename="logo.png"
+Content-ID: <logo@example.org>
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAAN
+--related-boundary--
+
+--mixed-boundary
+Content-Type: application/pdf; name="study.pdf"
+Content-Disposition: attachment; filename="study.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2Jq
+CjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFs0IDAgUiA2IDAgUl0gL0NvdW50IDIgPj4K
+ZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL0ZvbnQgL1N1YnR5cGUgL1R5cGUxIC9CYXNlRm9udCAv
+SGVsdmV0aWNhID4+CmVuZG9iago0IDAgb2JqCjw8IC9UeXBlIC9QYWdlIC9QYXJlbnQgMiAwIFIg
+L01lZGlhQm94IFswIDAgNjEyIDc5Ml0gL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgMyAwIFIg
+Pj4gPj4gL0NvbnRlbnRzIDUgMCBSID4+CmVuZG9iago1IDAgb2JqCjw8IC9MZW5ndGggMjMwID4+
+CnN0cmVhbQpCVCAvRjEgMTIgVGYgNzIgNzUwIFRkIChNdW5pY2lwYWwgY2xpbWF0ZSBhZGFwdGF0
+aW9uIGluIEdlcm1hbnkpIFRqIEVUCkJUIC9GMSAxMiBUZiA3MiA3MzQgVGQgKFRoZSBzdHVkeSBz
+dXJ2ZXllZCAxMjAgbXVuaWNpcGFsaXRpZXMgaW4gMjAyNS4pIFRqIEVUCkJUIC9GMSAxMiBUZiA3
+MiA3MTggVGQgKDQyIHBlcmNlbnQgbGFjayBmdW5kaW5nIGZvciBoZWF0IHByb3RlY3Rpb24gcGxh
+bnMuKSBUaiBFVAplbmRzdHJlYW0KZW5kb2JqCjYgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVu
+dCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSAvUmVzb3VyY2VzIDw8IC9Gb250IDw8IC9G
+MSAzIDAgUiA+PiA+PiAvQ29udGVudHMgNyAwIFIgPj4KZW5kb2JqCjcgMCBvYmoKPDwgL0xlbmd0
+aCAxOTIgPj4Kc3RyZWFtCkJUIC9GMSAxMiBUZiA3MiA3NTAgVGQgKFJlY29tbWVuZGF0aW9ucykg
+VGogRVQKQlQgL0YxIDEyIFRmIDcyIDczNCBUZCAoRmVkZXJhbCBwcm9ncmFtcyBzaG91bGQgZnVu
+ZCBzdGFmZiwgbm90IG9ubHkgcHJvamVjdHMuKSBUaiBFVApCVCAvRjEgMTIgVGYgNzIgNzE4IFRk
+IChET0kgMTAuMTIzNC9jbGltYXRlLjIwMjUuMDAxKSBUaiBFVAplbmRzdHJlYW0KZW5kb2JqCjgg
+MCBvYmoKPDwgL1RpdGxlIChNdW5pY2lwYWwgY2xpbWF0ZSBhZGFwdGF0aW9uKSA+PgplbmRvYmoK
+eHJlZgowIDkKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAwMDA5IDAwMDAwIG4gCjAwMDAwMDAw
+NTggMDAwMDAgbiAKMDAwMDAwMDEyMSAwMDAwMCBuIAowMDAwMDAwMTkxIDAwMDAwIG4gCjAwMDAw
+MDAzMTcgMDAwMDAgbiAKMDAwMDAwMDU5OCAwMDAwMCBuIAowMDAwMDAwNzI0IDAwMDAwIG4gCjAw
+MDAwMDA5NjcgMDAwMDAgbiAKdHJhaWxlcgo8PCAvU2l6ZSA5IC9Sb290IDEgMCBSIC9JbmZvIDgg
+MCBSID4+CnN0YXJ0eHJlZgoxMDI2CiUlRU9GCg==
+--mixed-boundary
+Content-Type: application/vnd.ms-excel; name="numbers.xls"
+Content-Disposition: attachment; filename="numbers.xls"
+Content-Transfer-Encoding: base64
+
+0M8R4KGxGuEAAAAAAAAAAAAAAAAAAAAA
+--mixed-boundary--
