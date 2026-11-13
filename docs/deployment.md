@@ -57,7 +57,11 @@ changes that are not released yet.
 
 Put a reverse proxy that terminates TLS in front of `web` and use its public
 URL as `LIBRARY_BASE_URL`. Use exactly that URL: login redirects and links in
-messages are built from it.
+messages are built from it. `web` answers on `127.0.0.1:3000` of the host.
+When another service holds that port (Docker reports `port is already
+allocated`), set `LIBRARY_PORT` to a free one. A platform with its own proxy,
+such as Coolify, reaches `web` through the Docker network and does not use
+this port, so any free port will do.
 
 Set `TZ` to your organization's time zone (default UTC); scheduled jobs run in
 that zone.

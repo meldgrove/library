@@ -23,7 +23,8 @@ variable.
 | `AI_PROVIDER`, `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` | worker | The AI model that drafts notes; see [AI model](#ai-model-worker) |
 
 With Docker Compose, `LIBRARY_VERSION` selects the release image
-([deployment](deployment.md#docker-compose)).
+([deployment](deployment.md#docker-compose)), and `LIBRARY_PORT` (default
+`3000`) the port on `127.0.0.1` of the host where `web` answers.
 
 ## Login
 

@@ -14,8 +14,9 @@
 # Without a PostgreSQL of your own, add compose.postgres.yaml: it runs one
 # next to the library (docs/deployment.md).
 #
-# Put a TLS-terminating reverse proxy in front of `web` (port 3000) and set
-# LIBRARY_BASE_URL to its public URL. `migrate` runs once before `web` and
+# Put a TLS-terminating reverse proxy in front of `web` (127.0.0.1:3000 on the
+# host; LIBRARY_PORT changes the port) and set LIBRARY_BASE_URL to its public
+# URL. `migrate` runs once before `web` and
 # `worker` start. Platforms that run Compose files (e.g. Coolify, Portainer)
 # can use this file as it is; set the variables in their environment view. A
 # platform that reads the file from the repository follows the branch
@@ -79,7 +80,10 @@ services:
       migrate:
         condition: service_completed_successfully
     ports:
-      - "127.0.0.1:3000:3000"
+      # The host port for a reverse proxy on the host. Platforms with their own
+      # proxy reach `web` over the Docker network; set LIBRARY_PORT to any free
+      # port when 3000 is taken.
+      - "127.0.0.1:${LIBRARY_PORT:-3000}:3000"
     volumes:
       - originals:/data/originals
     environment:
