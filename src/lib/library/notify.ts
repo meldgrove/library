@@ -43,6 +43,9 @@ export async function notifyPerson(tx: Database | Transaction, delivery: PersonM
       recipientId: delivery.recipientId,
       channel: delivery.channel,
       message: delivery.message,
+      // Due by the worker's clock, not the database's: the database counts in
+      // microseconds, so a row could otherwise wait for the next millisecond.
+      nextAttemptAt: new Date(),
     })
     .onConflictDoNothing({ target: notificationDelivery.deliveryKey });
 }
@@ -60,6 +63,9 @@ export async function postToChannel(
       channelId: post.channelId,
       channel: "slack_channel",
       message: post.message,
+      // Due by the worker's clock, not the database's: the database counts in
+      // microseconds, so a row could otherwise wait for the next millisecond.
+      nextAttemptAt: new Date(),
     })
     .onConflictDoNothing({ target: notificationDelivery.deliveryKey })
     .returning({ id: notificationDelivery.id });
@@ -79,6 +85,9 @@ export async function emailToAddress(
       channelId: email.address,
       channel: "email_address",
       message: email.message,
+      // Due by the worker's clock, not the database's: the database counts in
+      // microseconds, so a row could otherwise wait for the next millisecond.
+      nextAttemptAt: new Date(),
     })
     .onConflictDoNothing({ target: notificationDelivery.deliveryKey })
     .returning({ id: notificationDelivery.id });

@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { notificationDelivery, person } from "@/lib/db/schema";
-import { emailToAddress, notifyPerson } from "@/lib/library/notify";
+import { emailToAddress, notifyPerson, postToChannel } from "@/lib/library/notify";
 import { connectTestDatabase } from "../../../tests/integration/db";
 import { seedDirectory } from "../../../tests/integration/seed";
 import { dispatchDue } from "./dispatch";
@@ -62,6 +62,15 @@ describe("dispatch to an email address", () => {
     expect(await dispatchDue(db, transports({ email: false }))).toEqual({ sent: 0, skipped: 1, retry: 0, failed: 0 });
     expect(slackPosts).toHaveLength(0);
     expect((await db.select().from(notificationDelivery))[0]).toMatchObject({ status: "skipped", lastError: "Email is not configured." });
+  });
+
+  it("stamps every delivery with the app's clock, so it is due at once", async () => {
+    await notifyPerson(db, { event: "intake_reply", subjectKey: "email:y", recipientId: seed.people.ada.id, channel: "email", message: DIGEST });
+    await postToChannel(db, { event: "weekly_digest", key: "2026-W47:all", channelId: "C0123456789", message: DIGEST });
+    await emailToAddress(db, { event: "weekly_digest", key: "2026-W47:all", address: "all-staff@example.org", message: DIGEST });
+    // A database default would have microseconds; a JavaScript date never has.
+    const rows = await db.execute<{ micros: number }>(sql`select (extract(microseconds from next_attempt_at)::bigint % 1000)::int as micros from notification_delivery`);
+    expect(rows.rows.map((row) => row.micros)).toEqual([0, 0, 0]);
   });
 
   it("still sends messages to people by name", async () => {
