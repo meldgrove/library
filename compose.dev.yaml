@@ -1,0 +1,63 @@
+# Local development: PostgreSQL 18, a Keycloak with a development realm, an
+# S3-compatible server (RustFS) for trying the S3 storage driver, and Mailpit,
+# which catches the emails sent over SMTP.
+#   docker compose -f compose.dev.yaml up -d
+# Keycloak: http://localhost:8094 (admin / admin), realm "library".
+# S3: http://localhost:9012 (access key library, secret library-dev-secret).
+# Mailpit: SMTP on localhost:1026, the caught emails at http://localhost:8026.
+# The production setup is compose.yaml.
+name: library-dev
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: library
+      POSTGRES_PASSWORD: library
+      POSTGRES_DB: library
+    ports:
+      - "127.0.0.1:55444:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U library -d library"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.6.1
+    command: ["start-dev", "--import-realm", "--http-port=8080"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "127.0.0.1:8094:8080"
+    volumes:
+      - ./dev/keycloak:/opt/keycloak/data/import:ro
+
+  # An S3-compatible server for trying the S3 storage driver. The tests
+  # create their bucket; MinIO no longer publishes images.
+  s3:
+    image: rustfs/rustfs:1.0.4
+    command: ["/data"]
+    environment:
+      RUSTFS_ACCESS_KEY: library
+      RUSTFS_SECRET_KEY: library-dev-secret
+      RUSTFS_CONSOLE_ENABLE: "true"
+    ports:
+      - "127.0.0.1:9012:9000"
+      - "127.0.0.1:9013:9001"
+    volumes:
+      - s3-data:/data
+
+  mailpit:
+    image: axllent/mailpit:v1.29
+    ports:
+      - "127.0.0.1:1026:1025"
+      - "127.0.0.1:8026:8025"
+
+volumes:
+  postgres-data:
+  s3-data:

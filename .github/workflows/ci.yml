@@ -1,0 +1,174 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "26.13.0"
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  checks:
+    name: Lint, types, unit tests, build, audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - name: Migrations match the schema
+        run: |
+          npx drizzle-kit generate --name ci-check
+          if [ -n "$(git status --porcelain drizzle)" ]; then
+            git status --porcelain drizzle
+            echo "src/lib/db/schema.ts has changes without a migration. Run: npm run db:generate"
+            exit 1
+          fi
+      - run: npm run build
+      # Moderate findings are excluded: the only ones today come from
+      # drizzle-kit (a Better Auth peer dependency) and affect esbuild's dev
+      # server, which never runs in production.
+      - run: npm audit --omit=dev --audit-level=high
+
+  integration:
+    name: Integration tests (PostgreSQL 18)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: library
+          POSTGRES_PASSWORD: library
+          POSTGRES_DB: library
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U library -d library"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://library:library@localhost:5432/library_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run test:integration
+
+  e2e:
+    name: End-to-end tests (Keycloak, PostgreSQL 18)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: library
+          POSTGRES_PASSWORD: library
+          POSTGRES_DB: library
+        ports: ["55444:5432"]
+        options: >-
+          --health-cmd "pg_isready -U library -d library"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Start Keycloak with the development realm
+        run: |
+          docker run -d --name keycloak -p 8094:8080 \
+            -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+            -v "$PWD/dev/keycloak:/opt/keycloak/data/import:ro" \
+            quay.io/keycloak/keycloak:26.6.1 start-dev --import-realm --http-port=8080
+      - run: npm ci --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - name: Wait for Keycloak
+        run: |
+          for i in $(seq 1 90); do
+            curl -fsS http://localhost:8094/realms/library/.well-known/openid-configuration > /dev/null && exit 0
+            sleep 2
+          done
+          docker logs keycloak | tail -50
+          exit 1
+      - name: Start the library (web and worker)
+        run: |
+          set -a; source .env.example; set +a
+          # Production refuses the example secret.
+          export BETTER_AUTH_SECRET="$(openssl rand -base64 32)"
+          export NODE_ENV=production TZ=Europe/Amsterdam PORT=3000 HOSTNAME=127.0.0.1 WORKER_HEARTBEAT_FILE="$RUNNER_TEMP/heartbeat"
+          # Absolute: the standalone server runs in .next/standalone.
+          export STORAGE_DIR="$RUNNER_TEMP/storage"
+          cp -r .next/static .next/standalone/.next/static
+          cp -r public .next/standalone/public
+          LIBRARY_PROCESS=migrate node dist/migrate.mjs
+          LIBRARY_PROCESS=web nohup node .next/standalone/server.js > "$RUNNER_TEMP/web.log" 2>&1 &
+          LIBRARY_PROCESS=worker nohup node dist/worker.mjs > "$RUNNER_TEMP/worker.log" 2>&1 &
+          # A second instance with the manual directory and its own database.
+          PGPASSWORD=library psql -h localhost -p 55444 -U library -d library -c "create database library_manual"
+          export DATABASE_URL=postgres://library:library@localhost:55444/library_manual
+          export DIRECTORY=manual INITIAL_ADMIN_EMAILS=adam@example.test LIBRARY_BASE_URL=http://localhost:3001 PORT=3001
+          LIBRARY_PROCESS=migrate node dist/migrate.mjs
+          LIBRARY_PROCESS=web nohup node .next/standalone/server.js > "$RUNNER_TEMP/web-manual.log" 2>&1 &
+      - name: Wait for the library
+        run: |
+          for i in $(seq 1 90); do
+            curl -fsS http://127.0.0.1:3000/-/readyz > /dev/null && curl -fsS http://127.0.0.1:3001/-/readyz > /dev/null && exit 0
+            sleep 2
+          done
+          echo "Meldgrove Library did not become ready"
+          cat "$RUNNER_TEMP/web.log" "$RUNNER_TEMP/worker.log" "$RUNNER_TEMP/web-manual.log"
+          exit 1
+      - run: npm run test:e2e
+        env:
+          CI: "true"
+          # The tests read and change the app's database.
+          DATABASE_URL: postgres://library:library@localhost:55444/library
+      - name: Logs
+        if: failure()
+        run: cat "$RUNNER_TEMP/web.log" "$RUNNER_TEMP/worker.log" "$RUNNER_TEMP/web-manual.log"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: docker build -t library:ci .
+      - name: The image runs as a non-root user
+        run: test "$(docker run --rm --entrypoint id library:ci -u)" = "1000"
+      - name: OCR reads a scanned PDF in the image
+        run: |
+          docker run --rm --user root --entrypoint sh -v "$PWD/tests/fixtures/files:/fx:ro" library:ci -c '
+            set -e; cd /tmp
+            gs -q -dNOPAUSE -dBATCH -sDEVICE=pnggray -r200 -sOutputFile=page-%d.png /fx/study.pdf
+            python3 -c "import img2pdf; open(\"scan.pdf\", \"wb\").write(img2pdf.convert([\"page-1.png\", \"page-2.png\"]))"
+            ocrmypdf --skip-text --sidecar text.txt -l deu+eng --output-type pdf scan.pdf out.pdf
+            grep -q "42 percent lack funding" text.txt'
+
