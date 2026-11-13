@@ -210,6 +210,11 @@ Actions, route handlers) and failures of the worker go to
 its stack trace are sent: no user, cookies, headers, request bodies, query
 strings, or values from database queries. The browser sends nothing.
 
+Stack traces show the TypeScript files only in a Sentry project that has the
+image's source maps. Releases upload them to the maintainers' project; for
+your own, build the image with an auth token of your Sentry organization:
+`docker build --secret id=sentry_auth_token,env=SENTRY_AUTH_TOKEN --build-arg SENTRY_ORG=<organization> --build-arg SENTRY_PROJECT=<project> .`
+
 | Variable | Default | Value |
 |---|---|---|
 | `SENTRY_DSN` | none | The project's DSN (Client Key). Off without it |
