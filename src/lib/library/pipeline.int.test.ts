@@ -184,6 +184,16 @@ describe("pipeline", () => {
     expect((await statusOf(submissionId)).statusReason ?? "").not.toMatch(/cannot read/);
   });
 
+  it("takes links only while storage is off, and keeps the text of a PDF behind a link", async () => {
+    await expect(submitFile(db, null, { submitterId: seed.people.ada.id, channel: "web", reason: "Paper", fileName: "study.pdf", bytes: await fixture("study.pdf") }, MAX)).rejects.toThrow(/links only/);
+    expect(await db.select().from(source)).toHaveLength(0);
+    const { submissionId, sourceId } = await submitLink(db, { submitterId: seed.people.ada.id, channel: "web", reason: "Paper", url: `${base}/paper.pdf` });
+    expect(await processNext(deps({ storage: null }))).toBe("drafted");
+    const [src] = await db.select().from(source).where(eq(source.id, sourceId));
+    expect(src).toMatchObject({ kind: "link", storageKey: null, extractionMethod: "pdf" });
+    expect((await statusOf(submissionId)).status).toBe("drafted");
+  });
+
   it("waits for the next day when the AI budget is used up", async () => {
     await upload("a.txt", new TextEncoder().encode(`First text. ${studyText}`));
     await upload("b.txt", new TextEncoder().encode(`Second text. ${studyText}`));

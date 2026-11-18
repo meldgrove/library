@@ -57,14 +57,19 @@ async function insertSubmission(tx: Transaction, sourceId: string, input: Submit
 
 /**
  * Stores the original (once per SHA-256) and records the upload. Refuses
- * files the library cannot read and files over the limit.
+ * files the library cannot read, files over the limit, and every file while
+ * storage is off.
  */
 export async function submitFile(
   db: Database | Transaction,
-  storage: Storage,
+  storage: Storage | null,
   input: SubmitFileInput,
   maxBytes: number,
 ): Promise<{ submissionId: string; sourceId: string }> {
+  if (!storage) {
+    const message = "This library takes links only: it has no storage for files.";
+    throw new CommandError("invalid", message, { file: message });
+  }
   if (input.bytes.byteLength === 0) throw new CommandError("invalid", "The file is empty.", { file: "The file is empty." });
   if (input.bytes.byteLength > maxBytes) {
     const message = `The file is larger than ${Math.round(maxBytes / 1_048_576)} MB.`;

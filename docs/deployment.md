@@ -36,7 +36,8 @@ curl -fsSLO "https://raw.githubusercontent.com/meldgrove/library/v$version/compo
 curl -fsSL -o .env "https://raw.githubusercontent.com/meldgrove/library/v$version/.env.example"
 # Edit .env with the production values (docs/configuration.md): at least
 # DATABASE_URL, LIBRARY_BASE_URL, BETTER_AUTH_SECRET, the OIDC_* variables,
-# DIRECTORY with its settings, the S3_* variables, and the AI_* variables.
+# DIRECTORY with its settings, and the AI_* variables; for files, the S3_*
+# variables.
 # Remove NOTIFICATION_TRANSPORT (production sends for real), AI_PROVIDER=fake,
 # and the STORAGE_* lines (see Storage below). Add the release:
 #   LIBRARY_VERSION=0.1.0
@@ -75,7 +76,8 @@ that may only use it. Turn on bucket versioning or copy the bucket to a
 second location: the bucket and the database together are the backup. With
 `STORAGE_DRIVER=filesystem`, `web` and `worker` share the `originals` volume
 of `compose.yaml` (`STORAGE_DIR=/data/originals`), and that volume needs a
-backup.
+backup. Without any `S3_*` variable, storage is off: the library runs and
+takes links, and refuses files until storage is set up.
 
 ### PostgreSQL next to the library
 

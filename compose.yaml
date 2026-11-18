@@ -44,7 +44,8 @@ x-directory-environment: &directory-environment
   KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-}
 
 # Originals: an S3-compatible bucket, or the `originals` volume
-# with STORAGE_DRIVER=filesystem.
+# with STORAGE_DRIVER=filesystem. Without any S3_* variable, storage is off and
+# the library takes links only.
 x-storage-environment: &storage-environment
   STORAGE_DRIVER: ${STORAGE_DRIVER:-s3}
   STORAGE_DIR: ${STORAGE_DIR:-/data/originals}

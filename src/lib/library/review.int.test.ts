@@ -221,6 +221,15 @@ describe("review", () => {
     expect(await storage.exists(src!.storageKey!)).toBe(false);
   });
 
+  it("deletes a note while storage is off; its original waits until storage is back", async () => {
+    const created = await draft();
+    const [src] = await db.select().from(source).where(eq(source.id, created.sourceId));
+    await deleteNote(db, null, seed.actors.ada, created.id, "Privacy request");
+    expect(await db.select().from(note)).toHaveLength(0);
+    expect(await db.select().from(storageCleanup)).toMatchObject([{ storageKey: src!.storageKey, attempts: 0 }]);
+    expect(await storage.exists(src!.storageKey!)).toBe(true);
+  });
+
   it("does not send messages about a note the recipient may no longer see, or a deleted one", async () => {
     const created = await draft();
     const transports = { baseUrl: "https://library.example", slack: createConsoleSlackTransport(), email: createConsoleEmailTransport() };

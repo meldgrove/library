@@ -160,7 +160,7 @@ export async function recordSlackEvent(db: Database, event: SlackDirectMessage):
 
 export interface SlackIntakeDeps {
   db: Database;
-  storage: Storage;
+  storage: Storage | null;
   slack: SlackIntakeClient;
   maxBytes: number;
 }

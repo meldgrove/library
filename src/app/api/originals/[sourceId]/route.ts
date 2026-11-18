@@ -36,7 +36,7 @@ export async function GET(_request: Request, { params }: RouteContext<"/api/orig
   const allowed = uploaded.length > 0 || (ownNote !== undefined && canSeeNote(viewerOf(person), ownNote)) || (person.isAdmin && !ownNote);
   if (!allowed) return notFound();
 
-  const bytes = await getStorage().get(row.storageKey);
+  const bytes = (await getStorage()?.get(row.storageKey)) ?? null;
   if (!bytes) return notFound();
   const pdf = row.mimeType === "application/pdf";
   const fileName = row.fileName ?? (pdf ? "source.pdf" : "source");

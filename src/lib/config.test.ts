@@ -209,6 +209,16 @@ describe("parseStorageConfig", () => {
     });
     expect(config).toMatchObject({ STORAGE_DRIVER: "s3", S3_BUCKET: "library", S3_FORCE_PATH_STYLE: false });
   });
+
+  it("is off with S3 and none of its variables, as compose.yaml starts without them", () => {
+    const blank = { S3_ENDPOINT: "", S3_REGION: "", S3_BUCKET: "", S3_ACCESS_KEY_ID: "", S3_SECRET_ACCESS_KEY: "", S3_FORCE_PATH_STYLE: "" };
+    expect(parseStorageConfig({ STORAGE_DRIVER: "s3", ...blank, STORAGE_DIR: "/data/originals" })).toEqual({ STORAGE_DRIVER: "off" });
+    expect(parseStorageConfig({ STORAGE_DRIVER: "off" })).toEqual({ STORAGE_DRIVER: "off" });
+    expect(() => parseStorageConfig({ STORAGE_DRIVER: "s3", ...blank, S3_BUCKET: "library" })).toThrow(/S3_REGION/);
+    expect(() =>
+      validateWebConfig({ DATABASE_URL: "postgres://u:p@db:5432/library", ...auth, ...manualDirectory, STORAGE_DRIVER: "s3", ...blank }),
+    ).not.toThrow();
+  });
 });
 
 describe("parseUploadConfig", () => {

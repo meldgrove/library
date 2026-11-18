@@ -243,7 +243,7 @@ export interface IntakeMailbox {
 
 export interface EmailIntakeDeps {
   db: Database;
-  storage: Storage;
+  storage: Storage | null;
   maxBytes: number;
   /** Allowed sender domains, lower-case. */
   domains: readonly string[];

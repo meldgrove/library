@@ -147,8 +147,8 @@ export async function discardNote(db: Database, actor: Actor, noteId: string, no
 }
 
 /** Deletes the originals right away when storage answers; the worker retries the rest. */
-async function cleanUpNow(db: Database, storage: Storage, keys: string[]): Promise<void> {
-  if (keys.length === 0) return;
+async function cleanUpNow(db: Database, storage: Storage | null, keys: string[]): Promise<void> {
+  if (keys.length === 0 || !storage) return;
   try {
     await cleanUpOriginals(db, storage, { keys });
   } catch (error) {
@@ -161,7 +161,7 @@ async function cleanUpNow(db: Database, storage: Storage, keys: string[]): Promi
  * for copyright or privacy requests. The webhook gets its removal at the next sync.
  * The audit log keeps only the note's number and the reason.
  */
-export async function deleteNote(db: Database, storage: Storage, actor: Actor, noteId: string, reason: string, now: Date = new Date()): Promise<void> {
+export async function deleteNote(db: Database, storage: Storage | null, actor: Actor, noteId: string, reason: string, now: Date = new Date()): Promise<void> {
   const keys = await db.transaction(async (tx) => {
     const current = await lockNote(tx, noteId);
     requireEditor(actor, current);
@@ -245,7 +245,7 @@ export async function retrySubmission(db: Database, actor: Actor, submissionId: 
 }
 
 /** Deletes an upload on hold; its source and original go too when nothing else uses them. */
-export async function deleteSubmission(db: Database, storage: Storage, actor: Actor, submissionId: string): Promise<void> {
+export async function deleteSubmission(db: Database, storage: Storage | null, actor: Actor, submissionId: string): Promise<void> {
   requireSteward(actor);
   const keys = await db.transaction(async (tx) => {
     const row = await lockSubmission(tx, submissionId);
