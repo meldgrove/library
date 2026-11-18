@@ -1,3 +1,4 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import type { AiConfig } from "@/lib/config";
 import { DRAFT_TEXT_LIMIT, NOTE_LIMITS, VISIBILITIES, type NoteQuote, type Visibility } from "./constants";
@@ -269,6 +270,95 @@ export function createOpenAiCompatibleModel(
   };
 }
 
+const nullableString = { anyOf: [{ type: "string" }, { type: "null" }] };
+const stringList = { type: "array", items: { type: "string" } };
+const answerProperties = {
+  title: { type: "string" },
+  core: { type: "string" },
+  key_points: stringList,
+  quotes: {
+    type: "array",
+    items: {
+      type: "object",
+      properties: { text: { type: "string" }, location: nullableString },
+      required: ["text", "location"],
+      additionalProperties: false,
+    },
+  },
+  citation: { type: "string" },
+  language: nullableString,
+  document_type: nullableString,
+  project: nullableString,
+  tags: stringList,
+  proposed_tags: stringList,
+  visibility: { type: "string", enum: ["all", "team"] },
+  uncertain_fields: stringList,
+};
+
+/**
+ * The answer's keys and types for Anthropic's structured outputs, so Claude can
+ * only answer with them. Lengths, the closed lists, and the quotes are still
+ * checked by `checkAnswer`, as for every model.
+ */
+export const ANSWER_JSON_SCHEMA = {
+  type: "object",
+  properties: answerProperties,
+  required: Object.keys(answerProperties),
+  additionalProperties: false,
+};
+
+/** Claude models that take the server-side fallback when they decline a request. */
+const SERVER_FALLBACK_MODELS = /^claude-(fable-5|opus-5|sonnet-5-5)/;
+
+/**
+ * Anthropic's Claude API through the official SDK. The answer's shape comes
+ * from structured outputs; Claude takes no `temperature` (current models refuse
+ * any value below 1), so none is sent.
+ */
+export function createAnthropicModel(
+  config: Extract<AiConfig, { AI_PROVIDER: "anthropic" }>,
+  client: Anthropic = new Anthropic({ apiKey: config.AI_API_KEY, timeout: config.AI_TIMEOUT_MS }),
+): DraftModel {
+  // On a decline, the API runs the same request on a fallback model in the same call.
+  const fallback: Pick<Anthropic.Beta.MessageCreateParamsNonStreaming, "betas" | "fallbacks"> = SERVER_FALLBACK_MODELS.test(config.AI_MODEL)
+    ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" }
+    : {};
+  return {
+    name: config.AI_MODEL,
+    async complete(messages) {
+      const system = messages
+        .filter((message) => message.role === "system")
+        .map((message) => message.content)
+        .join("\n\n");
+      let response: Anthropic.Beta.BetaMessage;
+      try {
+        response = await client.beta.messages.create({
+          model: config.AI_MODEL,
+          max_tokens: 16_000,
+          ...(system ? { system } : {}),
+          messages: messages.filter((message) => message.role === "user").map((message) => ({ role: "user" as const, content: message.content })),
+          output_config: { format: { type: "json_schema", schema: ANSWER_JSON_SCHEMA } },
+          // The instructions and the lists are the same for every upload.
+          cache_control: { type: "ephemeral" },
+          ...fallback,
+        });
+      } catch (error) {
+        if (error instanceof Anthropic.APIConnectionError) throw new Error(`The AI model could not be reached: ${error.message}`);
+        if (error instanceof Anthropic.APIError) throw new Error(`The AI model answered HTTP ${error.status}: ${error.message.slice(0, 300)}`);
+        throw error;
+      }
+      if (response.stop_reason === "refusal") {
+        const category = response.stop_details?.category;
+        throw new DraftError(`The AI model declined to draft this source${category ? ` (${category})` : ""}.`);
+      }
+      if (response.stop_reason === "max_tokens") throw new DraftError("The AI model's answer was cut off.");
+      const text = response.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");
+      if (!text) throw new DraftError("The AI model's answer has no text.");
+      return text;
+    },
+  };
+}
+
 /**
  * Drafts from the text alone, without a model: the first sentences become the
  * core. For development, tests, and the end-to-end tests; never in production.
@@ -311,5 +401,12 @@ export function createFakeModel(): DraftModel {
 }
 
 export function createDraftModel(config: AiConfig): DraftModel {
-  return config.AI_PROVIDER === "openai-compatible" ? createOpenAiCompatibleModel(config) : createFakeModel();
+  switch (config.AI_PROVIDER) {
+    case "anthropic":
+      return createAnthropicModel(config);
+    case "openai-compatible":
+      return createOpenAiCompatibleModel(config);
+    case "fake":
+      return createFakeModel();
+  }
 }

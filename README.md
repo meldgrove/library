@@ -14,8 +14,8 @@ why.
   statement, key points, quotes with page numbers, citation) and picks tags,
   document types, and projects from closed lists. Quotes not found in the
   source are dropped. Nothing is published before its uploader confirms it.
-- **Any OpenAI-compatible AI provider**: Mistral, OpenAI, Azure OpenAI, or a
-  self-hosted model, with a daily limit.
+- **Claude or any OpenAI-compatible AI provider**: Anthropic's Claude API,
+  Mistral, OpenAI, Azure OpenAI, or a self-hosted model, with a daily limit.
 - **Untrusted uploads stay contained**: a screen holds back uploads with
   credentials, prohibited personal data, or hidden instructions for AI
   models; the model gets no tools.

@@ -10,7 +10,7 @@ search index or a knowledge base.
 web upload ──┐
 Slack bot ───┼─► Meldgrove Library ──► webhook (optional): search index, knowledge base, AI assistant
 email ───────┘   web app · worker · PostgreSQL · object storage
-                 ├─► AI model (OpenAI-compatible API): text in, JSON out
+                 ├─► AI model (Claude or OpenAI-compatible API): text in, JSON out
                  └─► email and Slack: replies, reminders, weekly digests
 ```
 

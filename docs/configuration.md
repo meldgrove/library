@@ -89,19 +89,30 @@ text of a PDF or Word file behind a link.
 ## AI model (worker)
 
 The worker sends the extracted text of each upload to one AI model, which
-returns the draft as JSON. The model gets no tools. Any API that speaks the
-OpenAI chat completions format and supports
-`response_format: {"type": "json_object"}` works: for example Mistral,
-OpenAI, Azure OpenAI, or a self-hosted model behind an OpenAI-compatible
-server. Most sources name their authors, so choose a provider that your
-organization allows for personal data.
+returns the draft as JSON. The model gets no tools. Two kinds of provider
+work:
+
+- **Anthropic** (`AI_PROVIDER=anthropic`): the Claude API through Anthropic's
+  SDK. The library asks for the answer's JSON schema (structured outputs). On
+  models that support it (Claude Fable 5, Claude Opus 5, and Claude Sonnet 5.5
+  models), a request the model declines runs again on a fallback model in the
+  same call.
+- **OpenAI-compatible** (`AI_PROVIDER=openai-compatible`): any API that speaks
+  the OpenAI chat completions format and supports
+  `response_format: {"type": "json_object"}`, for example Mistral, OpenAI,
+  Azure OpenAI, or a self-hosted model behind an OpenAI-compatible server.
+  Anthropic's OpenAI-compatible endpoint refuses this request; use
+  `anthropic` for Claude.
+
+Most sources name their authors, so choose a provider that your organization
+allows for personal data.
 
 | Variable | Default | Value |
 |---|---|---|
-| `AI_PROVIDER` | `fake` outside production, required in production (`openai-compatible` in `compose.yaml`) | `openai-compatible`, or `fake`, which drafts from the text without a model (development and tests only) |
-| `AI_BASE_URL` | required | Base URL up to and including `/v1`, e.g. `https://api.mistral.ai/v1` or `https://api.openai.com/v1` |
+| `AI_PROVIDER` | `fake` outside production, required in production (`openai-compatible` in `compose.yaml`) | `anthropic`, `openai-compatible`, or `fake`, which drafts from the text without a model (development and tests only) |
+| `AI_BASE_URL` | required with `openai-compatible` | Base URL up to and including `/v1`, e.g. `https://api.mistral.ai/v1` or `https://api.openai.com/v1` |
 | `AI_API_KEY` | required | API key |
-| `AI_MODEL` | required | Model name, e.g. `mistral-medium-latest` |
+| `AI_MODEL` | required | Model name, e.g. `claude-opus-5-5` (Anthropic) or `mistral-medium-latest` |
 | `AI_DAILY_LIMIT` | `200` | Drafts per day across all uploads; the rest waits for the next day |
 | `AI_TIMEOUT_MS` | `120000` | How long to wait for one answer |
 

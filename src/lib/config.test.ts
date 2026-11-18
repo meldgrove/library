@@ -245,6 +245,17 @@ describe("parseAiConfig", () => {
     });
     expect(config).toMatchObject({ AI_BASE_URL: "https://api.mistral.ai/v1", AI_DAILY_LIMIT: 200, AI_TIMEOUT_MS: 120_000 });
   });
+
+  it("needs the key and model of the Claude API, but no URL", () => {
+    expect(() => parseAiConfig({ AI_PROVIDER: "anthropic" })).toThrow(/AI_API_KEY[\s\S]*AI_MODEL/);
+    expect(parseAiConfig({ AI_PROVIDER: "anthropic", AI_API_KEY: "key", AI_MODEL: "claude-opus-5-5" })).toEqual({
+      AI_PROVIDER: "anthropic",
+      AI_API_KEY: "key",
+      AI_MODEL: "claude-opus-5-5",
+      AI_DAILY_LIMIT: 200,
+      AI_TIMEOUT_MS: 120_000,
+    });
+  });
 });
 
 describe("parseWebhookConfig", () => {
