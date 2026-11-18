@@ -42,8 +42,9 @@ jobs:
       - run: npm run build
       # Moderate findings are excluded: the only ones today come from
       # drizzle-kit (a Better Auth peer dependency) and affect esbuild's dev
-      # server, which never runs in production.
-      - run: npm audit --omit=dev --audit-level=high
+      # server, which never runs in production. High findings without a fix
+      # that do not affect the library are listed, with a date, in the script.
+      - run: node scripts/audit.mjs
 
   integration:
     name: Integration tests (PostgreSQL 18)
