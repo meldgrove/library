@@ -13,6 +13,8 @@ const db = testDb.db;
 let seed: Awaited<ReturnType<typeof seedDirectory>>;
 
 // Monday 16 November 2026, 09:00 in Amsterdam (the tests' server time zone).
+// Digests are recorded for this week; their deliveries are due by the real clock
+// (notify.ts), so they are sent at the real time.
 const MONDAY = new Date("2026-11-16T08:00:00Z");
 const daysBefore = (days: number) => new Date(MONDAY.getTime() - days * 24 * 60 * 60 * 1000);
 
@@ -111,7 +113,7 @@ describe("sending a digest", () => {
     await recordWeeklyDigests(db, MONDAY, { slackChannelId: "CLIBRARY" });
     await db.update(note).set({ visibility: "private" }).where(eq(note.id, hidden.id));
     await db.update(note).set({ visibility: "team" }).where(eq(note.id, narrowed.id));
-    expect(await dispatchNext(db, transports, MONDAY)).toBe("sent");
+    expect(await dispatchNext(db, transports, new Date())).toBe("sent");
     expect(sent).toHaveLength(1);
     expect(sent[0]!.text).toContain("Kept");
     expect(sent[0]!.text).not.toContain("Hidden");
@@ -126,7 +128,7 @@ describe("sending a digest", () => {
     await recordWeeklyDigests(db, MONDAY, { slackChannelId: "CLIBRARY" });
     await db.delete(noteTag);
     await db.update(note).set({ status: "draft" }).where(eq(note.id, only.id));
-    expect(await dispatchNext(db, transports, MONDAY)).toBe("skipped");
+    expect(await dispatchNext(db, transports, new Date())).toBe("skipped");
     expect(sent).toHaveLength(0);
   });
 });
@@ -160,7 +162,7 @@ describe("sending a personal digest or the newsletter", () => {
     await recordPersonalDigests(db, MONDAY);
     await recordWeeklyDigests(db, MONDAY, { emailTo: "staff@example.org" });
     await db.update(note).set({ visibility: "private" }).where(eq(note.id, closed.id));
-    while (await dispatchNext(db, transports, MONDAY)) {
+    while (await dispatchNext(db, transports, new Date())) {
       // Send everything due.
     }
     expect(emails.map((e) => e.to).sort()).toEqual(["dan@example.org", "staff@example.org"]);
