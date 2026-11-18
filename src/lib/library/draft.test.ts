@@ -1,10 +1,14 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it, vi } from "vitest";
 import {
+  ANSWER_JSON_SCHEMA,
   buildMessages,
   checkAnswer,
   comparable,
+  createAnthropicModel,
   createFakeModel,
   createOpenAiCompatibleModel,
+  draftAnswerSchema,
   draftNote,
   DraftError,
   parseAnswer,
@@ -160,5 +164,81 @@ describe("createOpenAiCompatibleModel", () => {
     const fetchImpl = vi.fn(async () => new Response("quota", { status: 429 }));
     const model = createOpenAiCompatibleModel(config, fetchImpl as unknown as typeof fetch);
     await expect(model.complete([])).rejects.toThrow("HTTP 429: quota");
+  });
+});
+
+describe("createAnthropicModel", () => {
+  const config = {
+    AI_PROVIDER: "anthropic" as const,
+    AI_API_KEY: "key",
+    AI_MODEL: "claude-opus-5-5",
+    AI_DAILY_LIMIT: 10,
+    AI_TIMEOUT_MS: 1_000,
+  };
+  const MESSAGES = buildMessages(INPUT);
+
+  /** A client whose messages.create answers with this message, or throws this error. */
+  function fakeClient(answer: Partial<Anthropic.Beta.BetaMessage> | Error) {
+    const create = vi.fn(async () => {
+      if (answer instanceof Error) throw answer;
+      return { content: [{ type: "text", text: "{}" }], stop_reason: "end_turn", stop_details: null, ...answer };
+    });
+    return { client: { beta: { messages: { create } } } as unknown as Anthropic, create };
+  }
+
+  it("sends the instructions as system prompt and asks for the answer's JSON schema, without a temperature", async () => {
+    const { client, create } = fakeClient({});
+    await expect(createAnthropicModel(config, client).complete(MESSAGES)).resolves.toBe("{}");
+    const [params] = create.mock.calls[0] as unknown as [Record<string, unknown>];
+    expect(params).toMatchObject({
+      model: "claude-opus-5-5",
+      system: MESSAGES[0]!.content,
+      messages: [{ role: "user", content: MESSAGES[1]!.content }],
+      output_config: { format: { type: "json_schema", schema: ANSWER_JSON_SCHEMA } },
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+    });
+    expect(params).not.toHaveProperty("temperature");
+  });
+
+  it("leaves out the fallback for models that do not take it", async () => {
+    const { client, create } = fakeClient({});
+    await createAnthropicModel({ ...config, AI_MODEL: "claude-haiku-5-5" }, client).complete(MESSAGES);
+    const [params] = create.mock.calls[0] as unknown as [Record<string, unknown>];
+    expect(params).not.toHaveProperty("fallbacks");
+    expect(params).not.toHaveProperty("betas");
+  });
+
+  it("returns only the text, not the thinking", async () => {
+    const { client } = fakeClient({
+      content: [
+        { type: "thinking", thinking: "", signature: "s" },
+        { type: "text", text: '{"title":' },
+        { type: "text", text: '"A"}' },
+      ] as Anthropic.Beta.BetaContentBlock[],
+    });
+    await expect(createAnthropicModel(config, client).complete(MESSAGES)).resolves.toBe('{"title":"A"}');
+  });
+
+  it("parks a source the model declines, and a cut-off answer", async () => {
+    const declined = fakeClient({ stop_reason: "refusal", stop_details: { type: "refusal", category: "cyber" } as Anthropic.Beta.BetaRefusalStopDetails });
+    await expect(createAnthropicModel(config, declined.client).complete(MESSAGES)).rejects.toThrow(new DraftError("The AI model declined to draft this source (cyber)."));
+    const cut = fakeClient({ stop_reason: "max_tokens" });
+    await expect(createAnthropicModel(config, cut.client).complete(MESSAGES)).rejects.toBeInstanceOf(DraftError);
+    const empty = fakeClient({ content: [] });
+    await expect(createAnthropicModel(config, empty.client).complete(MESSAGES)).rejects.toThrow("has no text");
+  });
+
+  it("reports API and connection errors for a later retry, not as a draft error", async () => {
+    const limited = fakeClient(new Anthropic.RateLimitError(429, undefined, "quota", new Headers()));
+    const error = await createAnthropicModel(config, limited.client).complete(MESSAGES).catch((caught: unknown) => caught);
+    expect(error).not.toBeInstanceOf(DraftError);
+    expect((error as Error).message).toMatch(/^The AI model answered HTTP 429: .*quota/);
+    const down = fakeClient(new Anthropic.APIConnectionError({ message: "Connection error." }));
+    await expect(createAnthropicModel(config, down.client).complete(MESSAGES)).rejects.toThrow("The AI model could not be reached: Connection error.");
+  });
+
+  it("asks for exactly the keys the answer schema checks", () => {
+    expect(Object.keys(ANSWER_JSON_SCHEMA.properties).sort()).toEqual(Object.keys(draftAnswerSchema.shape).sort());
   });
 });

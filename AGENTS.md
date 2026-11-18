@@ -14,8 +14,8 @@ strict TypeScript, PostgreSQL 18 with Drizzle ORM (`pg` driver), Better Auth
 with one OpenID Connect provider (PKCE), pg-boss worker, zod 4, Tailwind 4
 with shadcn/ui (Radix), pino, Vitest, Playwright. Text extraction: unpdf,
 mammoth, Readability with linkedom; OCR through `ocrmypdf`. Storage: the
-filesystem or S3 (`@aws-sdk/client-s3`). AI model: any OpenAI-compatible
-chat completions API.
+filesystem or S3 (`@aws-sdk/client-s3`). AI model: Anthropic's Claude API
+(`@anthropic-ai/sdk`) or any OpenAI-compatible chat completions API.
 
 ## Layout
 

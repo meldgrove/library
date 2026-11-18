@@ -201,9 +201,9 @@ const uploadSchema = z.object({
 });
 
 /**
- * The AI model that drafts notes: any OpenAI-compatible chat completions API
- * (Mistral, OpenAI, Azure OpenAI, a self-hosted model), or `fake`, which
- * drafts from the text without a model (development and tests).
+ * The AI model that drafts notes: Anthropic's Claude API, any OpenAI-compatible
+ * chat completions API (Mistral, OpenAI, Azure OpenAI, a self-hosted model), or
+ * `fake`, which drafts from the text without a model (development and tests).
  */
 const aiSchema = z.discriminatedUnion("AI_PROVIDER", [
   z.object({
@@ -217,6 +217,14 @@ const aiSchema = z.discriminatedUnion("AI_PROVIDER", [
     AI_API_KEY: requiredString(),
     AI_MODEL: requiredString(),
     /** Drafts per day, across all uploads; the rest waits for the next day. */
+    AI_DAILY_LIMIT: positiveInt(200),
+    AI_TIMEOUT_MS: positiveInt(120_000),
+  }),
+  z.object({
+    AI_PROVIDER: z.literal("anthropic"),
+    AI_API_KEY: requiredString(),
+    /** A Claude model, e.g. `claude-opus-5-5`. */
+    AI_MODEL: requiredString(),
     AI_DAILY_LIMIT: positiveInt(200),
     AI_TIMEOUT_MS: positiveInt(120_000),
   }),
