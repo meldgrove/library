@@ -15,6 +15,8 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 interface UploadFormProps {
   accept: string;
   maxMb: number;
+  /** False when storage is off: only links can be added. */
+  files: boolean;
   rules: readonly string[];
   confirmation: string;
   reasonMax: number;
@@ -23,10 +25,10 @@ interface UploadFormProps {
 type Errors = { formError?: string; fieldErrors?: Record<string, string> };
 
 /** A file or a link, one line on why, and the confirmation of the upload rules. Posts to /api/uploads. */
-export function UploadForm({ accept, maxMb, rules, confirmation, reasonMax }: UploadFormProps) {
+export function UploadForm({ accept, maxMb, files, rules, confirmation, reasonMax }: UploadFormProps) {
   const router = useRouter();
   const id = useId();
-  const [kind, setKind] = useState<"file" | "link">("file");
+  const [kind, setKind] = useState<"file" | "link">(files ? "file" : "link");
   const [pending, setPending] = useState(false);
   const [errors, setErrors] = useState<Errors>({});
   const [fileName, setFileName] = useState<string>();
@@ -67,25 +69,27 @@ export function UploadForm({ accept, maxMb, rules, confirmation, reasonMax }: Up
         </Alert>
       ) : null}
 
-      <ToggleGroup
-        type="single"
-        variant="outline"
-        value={kind}
-        onValueChange={(value) => {
-          if (!value) return;
-          setKind(value as "file" | "link");
-          setFileName(undefined);
-        }}
-        aria-label="What to add"
-        className="w-fit"
-      >
-        <ToggleGroupItem value="file" aria-label="A file">
-          <FileUp aria-hidden="true" /> File
-        </ToggleGroupItem>
-        <ToggleGroupItem value="link" aria-label="A link">
-          <Link2 aria-hidden="true" /> Link
-        </ToggleGroupItem>
-      </ToggleGroup>
+      {files ? (
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          value={kind}
+          onValueChange={(value) => {
+            if (!value) return;
+            setKind(value as "file" | "link");
+            setFileName(undefined);
+          }}
+          aria-label="What to add"
+          className="w-fit"
+        >
+          <ToggleGroupItem value="file" aria-label="A file">
+            <FileUp aria-hidden="true" /> File
+          </ToggleGroupItem>
+          <ToggleGroupItem value="link" aria-label="A link">
+            <Link2 aria-hidden="true" /> Link
+          </ToggleGroupItem>
+        </ToggleGroup>
+      ) : null}
 
       {kind === "file" ? (
         <Field data-invalid={fieldError("file") ? true : undefined}>

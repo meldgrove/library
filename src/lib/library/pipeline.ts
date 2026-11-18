@@ -33,7 +33,8 @@ import { noteSearchText, snapshotOf } from "./note-text";
 
 export interface PipelineDeps {
   db: Database;
-  storage: Storage;
+  /** Null when storage is off: a file behind a link then keeps only its text. */
+  storage: Storage | null;
   model: DraftModel;
   ocr: OcrOptions;
   maxBytes: number;
@@ -106,11 +107,13 @@ async function textOfLink(deps: PipelineDeps, row: SourceRow, claimed: Claimed):
   }
   if (type !== "pdf" && type !== "docx") throw new Stop("parked", "The link leads to a file type the library cannot read.");
 
-  // A file behind a link: store it once, as for uploads.
+  // A file behind a link: store it once, as for uploads. Without storage,
+  // only its text is kept, as for a web page.
   const sha256 = sha256Hex(fetched.bytes);
   const key = originalKey(sha256);
-  const sourceId = await deps.db.transaction(async (tx) => {
-    await storeOriginal(tx, deps.storage, key, fetched.bytes, ACCEPTED_TYPES[type].mimeType);
+  const storage = deps.storage;
+  const sourceId = !storage ? row.id : await deps.db.transaction(async (tx) => {
+    await storeOriginal(tx, storage, key, fetched.bytes, ACCEPTED_TYPES[type].mimeType);
     const [sameFile] = await tx.select().from(source).where(and(eq(source.sha256, sha256), ne(source.id, row.id)));
     if (sameFile) {
       // Someone uploaded this file already: the upload belongs to that source.
@@ -164,6 +167,7 @@ async function ensureText(deps: PipelineDeps, claimed: Claimed): Promise<{ text:
       if (existingText) return { text: existingText.text, sourceId };
     }
   } else {
+    if (!deps.storage) throw new Stop("parked", "Storage is off, so the library cannot read the original file.");
     const bytes = row.storageKey ? await deps.storage.get(row.storageKey) : null;
     if (!bytes) throw new Stop("parked", "The original file is missing from storage.");
     const type = detectFileType(bytes, row.fileName ?? "", row.mimeType ?? "");

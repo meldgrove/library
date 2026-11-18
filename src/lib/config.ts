@@ -53,12 +53,15 @@ const flag = (fallback: boolean) =>
     value === undefined ? fallback : value === "true",
   );
 
+const S3_VARIABLES = ["S3_ENDPOINT", "S3_REGION", "S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_FORCE_PATH_STYLE"];
+
 /**
  * Fills in defaults for unset or blank variables. The Keycloak directory uses
  * the login client unless it has its own.
  */
 function withDefaults(env: Env): Env {
   const value = (name: string) => blankAsUndefined(env[name]) as string | undefined;
+  const storageDriver = value("STORAGE_DRIVER") ?? "filesystem";
   return {
     ...env,
     DIRECTORY: value("DIRECTORY") ?? "manual",
@@ -68,7 +71,8 @@ function withDefaults(env: Env): Env {
     // Production sends for real; development and tests only log.
     NOTIFICATION_TRANSPORT: value("NOTIFICATION_TRANSPORT") ?? (env.NODE_ENV === "production" ? "live" : "console"),
     MAIL_FROM_NAME: value("MAIL_FROM_NAME") ?? "Meldgrove Library",
-    STORAGE_DRIVER: value("STORAGE_DRIVER") ?? "filesystem",
+    // S3 without any of its settings is no storage: the library takes links only.
+    STORAGE_DRIVER: storageDriver === "s3" && S3_VARIABLES.every((name) => value(name) === undefined) ? "off" : storageDriver,
     // The fake model only exists outside production.
     AI_PROVIDER: value("AI_PROVIDER") ?? (env.NODE_ENV === "production" ? undefined : "fake"),
     OCR_LANGUAGES: value("OCR_LANGUAGES") ?? "deu+eng",
@@ -161,7 +165,8 @@ const notificationSchema = z
 
 /**
  * Where originals are kept: a directory (development, tests, single-server
- * setups) or an S3-compatible bucket (Hetzner Object Storage, MinIO).
+ * setups) or an S3-compatible bucket (Hetzner Object Storage, MinIO). Off,
+ * the library refuses files and keeps only the text of links.
  */
 const storageSchema = z.discriminatedUnion("STORAGE_DRIVER", [
   z.object({
@@ -186,6 +191,7 @@ const storageSchema = z.discriminatedUnion("STORAGE_DRIVER", [
     /** Path-style URLs (bucket in the path), needed by MinIO. */
     S3_FORCE_PATH_STYLE: flag(false),
   }),
+  z.object({ STORAGE_DRIVER: z.literal("off") }),
 ]);
 
 /** What staff may upload. */

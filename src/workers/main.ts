@@ -114,7 +114,10 @@ async function main() {
   await boss.createQueue(QUEUES.storageCleanup, { retryLimit: 1, retryDelay: 300, expireInSeconds: 600 });
   await boss.schedule(QUEUES.storageCleanup, STORAGE_CLEANUP_CRON, {}, { tz: SERVER_TIME_ZONE });
   await boss.work(QUEUES.storageCleanup, async () => {
-    const deleted = await cleanUpOriginals(getDb(), getStorage());
+    // Without storage, the keys wait until storage is set up.
+    const storage = getStorage();
+    if (!storage) return;
+    const deleted = await cleanUpOriginals(getDb(), storage);
     if (deleted > 0) logger.info({ deleted }, "originals deleted");
   });
 

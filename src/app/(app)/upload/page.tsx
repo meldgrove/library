@@ -3,7 +3,7 @@ import { UploadForm } from "@/components/library/upload-form";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { requireUser } from "@/lib/auth/session";
-import { getUploadConfig } from "@/lib/config";
+import { getStorageConfig, getUploadConfig } from "@/lib/config";
 import { NOTE_LIMITS, UPLOAD_CONFIRMATION, UPLOAD_RULES } from "@/lib/library/constants";
 import { ACCEPT_ATTRIBUTE } from "@/lib/library/file-types";
 
@@ -22,6 +22,7 @@ export default async function UploadPage() {
           <UploadForm
             accept={ACCEPT_ATTRIBUTE}
             maxMb={getUploadConfig().UPLOAD_MAX_MB}
+            files={getStorageConfig().STORAGE_DRIVER !== "off"}
             rules={UPLOAD_RULES}
             confirmation={UPLOAD_CONFIRMATION}
             reasonMax={NOTE_LIMITS.reason}

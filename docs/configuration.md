@@ -19,7 +19,7 @@ variable.
 | `OIDC_CLIENT_ID` | web | Client ID registered for the library |
 | `OIDC_CLIENT_SECRET` | web | Its client secret |
 | `DIRECTORY` and its settings | web, worker | Who has access; see [directory](#directory-who-has-access) |
-| `STORAGE_DIR` or the `S3_*` variables | web, worker | Where originals are kept; see [storage](#storage-web-worker) |
+| `STORAGE_DIR` or the `S3_*` variables | web, worker | Where originals are kept; with `compose.yaml`, only for files. See [storage](#storage-web-worker) |
 | `AI_PROVIDER`, `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` | worker | The AI model that drafts notes; see [AI model](#ai-model-worker) |
 
 With Docker Compose, `LIBRARY_VERSION` selects the release image
@@ -69,9 +69,14 @@ derived from it.
 
 Originals are kept once per file (by SHA-256). Web pages are kept as text only.
 
+Storage is off when `STORAGE_DRIVER` is `s3` (the default in `compose.yaml`)
+and none of the `S3_*` variables is set, or when it is `off`. The library
+then takes links only: it refuses files in every channel, and keeps only the
+text of a PDF or Word file behind a link.
+
 | Variable | Default | Value |
 |---|---|---|
-| `STORAGE_DRIVER` | `filesystem` (`s3` in `compose.yaml`) | `filesystem` or `s3` |
+| `STORAGE_DRIVER` | `filesystem` (`s3` in `compose.yaml`) | `filesystem`, `s3`, or `off` |
 | `STORAGE_DIR` | required with `filesystem` | Directory for originals, an absolute path in production; web and worker must share it |
 | `S3_ENDPOINT` | AWS | Endpoint of an S3-compatible service, e.g. `https://fsn1.your-objectstorage.com` (Hetzner Object Storage) |
 | `S3_REGION` | required with `s3` | e.g. `fsn1` |

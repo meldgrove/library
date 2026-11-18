@@ -120,13 +120,15 @@ export function createS3Storage(config: Extract<StorageConfig, { STORAGE_DRIVER:
   };
 }
 
-export function createStorage(config: StorageConfig): Storage {
+/** Null when storage is off: the library then refuses files. */
+export function createStorage(config: StorageConfig): Storage | null {
+  if (config.STORAGE_DRIVER === "off") return null;
   return config.STORAGE_DRIVER === "s3" ? createS3Storage(config) : createFilesystemStorage(config.STORAGE_DIR);
 }
 
-const globalForStorage = globalThis as unknown as { libraryStorage?: Storage };
+const globalForStorage = globalThis as unknown as { libraryStorage?: Storage | null };
 
-export function getStorage(): Storage {
-  globalForStorage.libraryStorage ??= createStorage(getStorageConfig());
+export function getStorage(): Storage | null {
+  if (globalForStorage.libraryStorage === undefined) globalForStorage.libraryStorage = createStorage(getStorageConfig());
   return globalForStorage.libraryStorage;
 }
