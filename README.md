@@ -68,8 +68,8 @@ the library itself; see [Deployment](docs/deployment.md).
 - [Architecture](docs/architecture.md): the way of an upload, data, review,
   untrusted content
 - [Configuration](docs/configuration.md): every environment variable
-- [Deployment](docs/deployment.md): Docker Compose, storage, health checks,
-  upgrades, and automatic updates
+- [Deployment](docs/deployment.md): running it on Coolify or a Debian
+  server, storage, health checks, upgrades, and automatic updates
 - [Identity and access](docs/identity-and-access.md): OpenID Connect, the
   manual directory, the Keycloak directory, and who sees a note
 - [Taxonomy and the replay test](docs/taxonomy.md)
