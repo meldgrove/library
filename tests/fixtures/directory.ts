@@ -9,7 +9,7 @@ export function directoryPerson(overrides: Partial<DirectoryPerson> & { external
     displayName: `Person ${overrides.externalId}`,
     email: `${overrides.externalId}@example.test`,
     teamExternalId: TEAM_TECH.externalId,
-    isAdmin: false,
+    role: "member",
     ...overrides,
   };
 }

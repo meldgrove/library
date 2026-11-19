@@ -266,7 +266,7 @@ export type EmailOutcome =
 const NO_ACCESS: NotificationMessage = {
   subject: "The library could not take your email",
   title: "Library",
-  text: "The library could not take your email: your address does not belong to anyone with access to the library. If you should have access, ask a library steward.",
+  text: "The library could not take your email: your address does not belong to anyone with access to the library. If you should have access, ask a library admin.",
   path: "/",
 };
 

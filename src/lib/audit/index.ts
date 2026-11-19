@@ -32,8 +32,7 @@ export type AuditAction =
   | "person.first_admin"
   | "person.access_granted"
   | "person.access_revoked"
-  | "person.admin_granted"
-  | "person.admin_revoked"
+  | "person.role_changed"
   | "person.updated"
   | "team.created"
   | "team.renamed"
@@ -41,7 +40,7 @@ export type AuditAction =
   | "team.deactivated"
   | "team.digest_channel_changed";
 
-export type AuditSubject = "note" | "submission" | "source" | "tag" | "tag_proposal" | "document_type" | "project" | "person" | "team";
+export type AuditSubject = "note" | "submission" | "source" | "tag" | "tag_cluster" | "tag_proposal" | "document_type" | "topic_area" | "person" | "team";
 
 /** Appends an audit event in the caller's transaction. Rows are never changed or deleted. */
 export async function recordAudit(

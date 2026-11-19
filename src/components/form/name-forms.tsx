@@ -6,7 +6,7 @@ import { useFormAction } from "@/components/form/use-form-action";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-/** Longest name of a tag, team, document type, or project. */
+/** Longest name of a tag, team, document type, or topic area. */
 export const NAME_MAX = 80;
 
 type Action = (state: FormState, formData: FormData) => Promise<FormState>;

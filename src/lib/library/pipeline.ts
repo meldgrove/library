@@ -2,7 +2,7 @@ import path from "node:path";
 import { and, asc, eq, inArray, isNotNull, lte, ne, or, sql } from "drizzle-orm";
 import { recordAudit, type AuditAction } from "@/lib/audit";
 import type { Database, Transaction } from "@/lib/db/client";
-import { documentType, note, noteReason, noteTag, noteVersion, person, project, source, sourceText, submission, tag, tagProposal } from "@/lib/db/schema";
+import { documentType, note, noteReason, noteTag, noteVersion, person, source, sourceText, submission, tag, tagProposal, topicArea } from "@/lib/db/schema";
 import { errorMessage, logger } from "@/lib/logger";
 import { consumeRateLimit, RateLimitError } from "@/lib/rate-limit";
 import { originalKey, type Storage } from "@/lib/storage";
@@ -11,7 +11,7 @@ import { draftNote, DraftError, type DraftModel, type NoteDraft } from "./draft"
 import { ACCEPTED_TYPES, detectFileType, extractText, ExtractionError, fromHtml, tidyText, type Extracted, type OcrOptions } from "./extract";
 import { fetchLink, LinkError } from "./fetch-link";
 import { findDoi, sha256Hex } from "./identify";
-import { notifyPerson, notifyStewards } from "./notify";
+import { notifyPerson, notifyMaintainers } from "./notify";
 import { storeOriginal } from "./originals";
 import { describeFindings, screenText } from "./screen";
 import { draftLists } from "./taxonomy";
@@ -23,9 +23,9 @@ import { noteSearchText, snapshotOf } from "./note-text";
  *   received → text extracted → screened → duplicate check → AI draft → note (draft)
  *
  * It stops early with a reason the uploader sees: quarantined (screen
- * finding; a steward releases or deletes), duplicate (the source has a note),
+ * finding; a maintainer releases or deletes), duplicate (the source has a note),
  * blocked (the source was discarded before), or parked (the text or the draft
- * failed; a steward retries or deletes). Only the draft uses the AI model.
+ * failed; a maintainer retries or deletes). Only the draft uses the AI model.
  *
  * A submission is claimed with FOR UPDATE SKIP LOCKED, so several workers
  * never take the same one; the slow steps run outside any transaction.
@@ -233,7 +233,7 @@ async function createNote(deps: PipelineDeps, claimed: Claimed, sourceId: string
     const [type] = draft.documentType
       ? await tx.select({ id: documentType.id }).from(documentType).where(eq(documentType.name, draft.documentType))
       : [];
-    const [projectRow] = draft.project ? await tx.select({ id: project.id }).from(project).where(eq(project.name, draft.project)) : [];
+    const [area] = draft.topicArea ? await tx.select({ id: topicArea.id }).from(topicArea).where(eq(topicArea.name, draft.topicArea)) : [];
     const tags = draft.tags.length > 0 ? await tx.select({ id: tag.id, name: tag.name }).from(tag).where(inArray(tag.name, draft.tags)) : [];
     // Without a team, "My team" would hide the note from everyone but its owner.
     const visibility = draft.visibility === "team" && !owner?.teamId ? "all" : draft.visibility;
@@ -250,7 +250,7 @@ async function createNote(deps: PipelineDeps, claimed: Claimed, sourceId: string
       citation: draft.citation,
       language: draft.language,
       documentTypeId: type?.id ?? null,
-      projectId: projectRow?.id ?? null,
+      topicAreaId: area?.id ?? null,
       uncertainFields: draft.uncertainFields,
       draftModel: deps.model.name,
       draftedAt: now,
@@ -294,15 +294,15 @@ async function createNote(deps: PipelineDeps, claimed: Claimed, sourceId: string
   });
 }
 
-const STOP_MESSAGES: Record<Stop["status"], { subject: string; text: (reason: string) => string; stewards: boolean }> = {
+const STOP_MESSAGES: Record<Stop["status"], { subject: string; text: (reason: string) => string; maintainers: boolean }> = {
   quarantined: {
     subject: "Your upload is on hold",
-    text: (reason) => `${reason} A steward checks it and releases or deletes it.`,
-    stewards: true,
+    text: (reason) => `${reason} A maintainer checks it and releases or deletes it.`,
+    maintainers: true,
   },
-  duplicate: { subject: "The library has your upload already", text: (reason) => reason, stewards: false },
-  blocked: { subject: "Your upload was not drafted", text: (reason) => reason, stewards: false },
-  parked: { subject: "Your upload could not be drafted", text: (reason) => `${reason} A steward will look at it.`, stewards: true },
+  duplicate: { subject: "The library has your upload already", text: (reason) => reason, maintainers: false },
+  blocked: { subject: "Your upload was not drafted", text: (reason) => reason, maintainers: false },
+  parked: { subject: "Your upload could not be drafted", text: (reason) => `${reason} A maintainer will look at it.`, maintainers: true },
 };
 
 async function stop(deps: PipelineDeps, claimed: Claimed, result: Stop, now: Date): Promise<ProcessOutcome> {
@@ -338,12 +338,12 @@ async function stop(deps: PipelineDeps, claimed: Claimed, result: Stop, now: Dat
     const copy = STOP_MESSAGES[result.status];
     const message = { subject: copy.subject, title: copy.subject, text: copy.text(result.reason), path: "/uploads" };
     await notifyPerson(tx, { event: result.status, subjectKey: claimed.id, recipientId: claimed.submitterId, channel: "slack", message });
-    if (copy.stewards) {
-      await notifyStewards(tx, {
+    if (copy.maintainers) {
+      await notifyMaintainers(tx, {
         event: result.status,
-        subjectKey: `${claimed.id}:steward`,
+        subjectKey: `${claimed.id}:maintainers`,
         channel: "email",
-        message: { ...message, subject: `Steward: an upload is ${result.status}`, text: `${result.reason}`, path: "/steward" },
+        message: { ...message, subject: `Maintenance: an upload is ${result.status}`, text: `${result.reason}`, path: "/maintenance" },
       });
     }
   });
@@ -449,7 +449,7 @@ export function startProcessor(deps: PipelineDeps, intervalMs: number): () => Pr
   };
 }
 
-/** Uploads that are not finished, for the steward page and the admin page. */
+/** Uploads that are not finished, for the maintenance page and the admin page. */
 export async function openProblemCount(db: Database): Promise<number> {
   const [row] = await db
     .select({ value: sql<number>`count(*)::int` })

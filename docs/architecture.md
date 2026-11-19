@@ -23,7 +23,7 @@ email ───────┘   web app · worker · PostgreSQL · object stora
 | `submission` | One upload by one person: channel, reason, status, and why it stopped |
 | `note` | The source note: title, core, key points, quotes, citation, categories, visibility, review state. Shown as LIB-<number> |
 | `note_tag`, `note_reason`, `note_version` | Tags, who added the source and why, and every saved state |
-| `tag`, `tag_cluster`, `document_type`, `project`, `tag_proposal` | The taxonomy the AI model picks from, and tags it asked for |
+| `tag`, `tag_cluster`, `topic_area`, `document_type`, `tag_proposal` | The taxonomy the AI model picks from, and tags it asked for |
 | `webhook_sync` | What the webhook receiver should hold of each note, and whether it has it |
 | `audit_event` | Append-only log of every state change |
 | `notification_delivery` | Slack and email messages; only the worker sends them |
@@ -45,7 +45,7 @@ steps. Only the draft uses the AI model.
    every address checked against private networks.
 3. **Screen** (`screen.ts`): hidden instructions for AI models, credentials,
    and lists of prohibited data (bank details, payment cards, contact lists,
-   personnel documents). A finding quarantines the upload until a steward
+   personnel documents). A finding quarantines the upload until a maintainer
    releases or deletes it.
 4. **Duplicates**: the same source, or another with the same DOI, already has
    a note. A source whose draft was discarded stays blocked.
@@ -53,7 +53,7 @@ steps. Only the draft uses the AI model.
 6. **Draft** (`draft.ts`): the model returns one JSON object. Code checks it
    against the schema and the closed lists, drops quotes that are not in the
    source, and turns unknown tags into proposals. An invalid answer is asked
-   again once, then the upload is parked for a steward. A model that cannot be
+   again once, then the upload is parked for a maintainer. A model that cannot be
    reached is retried after 5 and 30 minutes.
 7. **Note**: a draft owned by the uploader, in their team. The uploader gets
    a message.
@@ -126,7 +126,7 @@ the newest quote as the quote of the week. No AI model is involved.
 |---|---|
 | `DIGEST_SLACK_CHANNEL_ID` (Slack) | Notes for everyone |
 | `DIGEST_EMAIL_TO` (a list address) | Notes for everyone |
-| A team's Slack channel (stewards set it under **Admin → Teams**) | The team's notes for everyone or for the team |
+| A team's Slack channel (admins set it under **Admin → Teams**) | The team's notes for everyone or for the team |
 | Each person who follows tags (**Settings**), by email | Notes by others with one of their tags that they may see (`visibleNotes`) |
 
 Private notes never go to a channel or a list. Nobody gets an empty digest.
@@ -149,7 +149,7 @@ records its effects in one transaction.
 | Who | Can |
 |---|---|
 | The owner (uploader) | Correct the draft against the original, then publish it ("Everyone", "My team", or "Only me") or discard it. Edit and delete their published notes |
-| A steward (admin) | All of the above for every note that is not private; mark published notes as checked; release or delete quarantined uploads; retry or delete parked ones |
+| A maintainer (or admin) | All of the above for every note that is not private; mark published notes as checked; release or delete quarantined uploads; retry or delete parked ones |
 
 Publishing needs 3 to 7 key points and 2 to 5 tags (when the taxonomy has
 tags). Every save is a new version. Discarding blocks the source, so later
@@ -157,13 +157,13 @@ uploads of it are not drafted again. Deleting removes the note, its source,
 every upload of it, and the stored originals; the audit log keeps the note's
 number and the reason.
 
-Stewards see tag proposals and tag usage counts for notes they may see.
-Accepting or rejecting a proposal resolves other pending proposals with the
-same name only when the steward can see their notes.
+Maintainers and admins see tag proposals and tag usage counts for notes they
+may see. Accepting or rejecting a proposal resolves other pending proposals
+with the same name only when they can see their notes.
 
-Owners get a reminder after a week; stewards hear of drafts open after 30
-days. The **Steward** page lists uploads on hold, overdue drafts, and
-published notes not yet checked.
+Owners get a reminder after a week; maintainers and admins hear of drafts
+open after 30 days. The **Maintenance** page lists uploads on hold, overdue
+drafts, and published notes not yet checked.
 
 ## Webhook
 

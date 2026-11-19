@@ -19,8 +19,9 @@ const routes = {
   channel: await import("./channel/route"),
 };
 
-const ADMIN = { id: "00000000-0000-4000-8000-000000000001", isAdmin: true };
-const MEMBER = { id: "00000000-0000-4000-8000-000000000002", isAdmin: false };
+const ADMIN = { id: "00000000-0000-4000-8000-000000000001", role: "admin" };
+const MEMBER = { id: "00000000-0000-4000-8000-000000000002", role: "member" };
+const MAINTAINER = { id: "00000000-0000-4000-8000-000000000003", role: "maintainer" };
 
 let handler: (request: IncomingMessage, body: string, response: ServerResponse) => void;
 const calls: { method: string; url: string; body: string }[] = [];
@@ -71,8 +72,8 @@ function post(route: "check" | "install" | "channel", body?: unknown, origin: st
 }
 
 describe("/api/admin/updates", () => {
-  it("answers 404 without a session and to people who are not admins", async () => {
-    for (const person of [null, MEMBER]) {
+  it("answers 404 without a session and to people who are not admins, maintainers too", async () => {
+    for (const person of [null, MEMBER, MAINTAINER]) {
       mocks.getCurrentPerson.mockResolvedValue(person);
       expect((await get()).status).toBe(404);
       expect((await post("check")).status).toBe(404);

@@ -45,6 +45,12 @@ export const VISIBILITY_LABELS: Record<Visibility, string> = {
   all: "Everyone",
 };
 
+/** A document type or topic area: its name, and one line on what it covers for the AI model. */
+export interface ListEntry {
+  name: string;
+  description: string;
+}
+
 export const TAG_PROPOSAL_STATUSES = ["pending", "accepted", "rejected"] as const;
 export type TagProposalStatus = (typeof TAG_PROPOSAL_STATUSES)[number];
 

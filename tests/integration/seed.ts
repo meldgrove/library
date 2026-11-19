@@ -17,7 +17,7 @@ export async function seedDirectory(db: Database) {
     .values([
       { oidcSubject: "sub-ada", displayName: "Ada Author", teamId: tech!.id, hasAccess: true },
       { oidcSubject: "sub-dan", displayName: "Dan Decider", teamId: ops!.id, hasAccess: true },
-      { oidcSubject: "sub-amy", displayName: "Amy Admin", teamId: ops!.id, hasAccess: true, isAdmin: true },
+      { oidcSubject: "sub-amy", displayName: "Amy Admin", teamId: ops!.id, hasAccess: true, role: "admin" },
       { oidcSubject: "sub-lea", displayName: "Lea Left", teamId: tech!.id, hasAccess: false },
     ])
     .returning();
@@ -26,7 +26,7 @@ export async function seedDirectory(db: Database) {
     .insert(tag)
     .values([{ name: "Budget" }, { name: "Tools" }, { name: "Old", isActive: false }])
     .returning();
-  const actor = (p: typeof ada): Actor => ({ personId: p!.id, isAdmin: p!.isAdmin });
+  const actor = (p: typeof ada): Actor => ({ personId: p!.id, role: p!.role });
   return {
     teams: { tech: tech!, ops: ops!, archive: archive! },
     people: { ada: ada!, dan: dan!, amy: amy!, lea: lea! },

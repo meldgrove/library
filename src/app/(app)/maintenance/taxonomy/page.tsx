@@ -2,37 +2,43 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ActionButton } from "@/components/admin/directory-forms";
 import { NameForm } from "@/components/form/name-forms";
-import { ProposalForm, TagForm } from "@/components/library/taxonomy-forms";
+import { EntryForm, ProposalForm, TagForm } from "@/components/library/taxonomy-forms";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { requireAdmin } from "@/lib/auth/session";
+import { requireMaintainer } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { notePath, noteRef } from "@/lib/library/constants";
 import { viewerOf } from "@/lib/library/access";
 import { getTaxonomy } from "@/lib/library/taxonomy";
+import type { FormState } from "@/lib/form-state";
 import {
   acceptTagProposalAction,
   createClusterAction,
   createDocumentTypeAction,
-  createProjectAction,
   createTagAction,
+  createTopicAreaAction,
+  deleteClusterAction,
   rejectTagProposalAction,
+  renameClusterAction,
   setDocumentTypeActiveAction,
-  setProjectActiveAction,
   setTagActiveAction,
+  setTopicAreaActiveAction,
+  updateDocumentTypeAction,
   updateTagAction,
+  updateTopicAreaAction,
 } from "./actions";
 
 export const metadata: Metadata = { title: "Taxonomy" };
 
 /**
- * The closed lists the AI model picks from. Entries are never deleted: a
- * deactivated tag stays on its notes but is no longer offered.
+ * The closed lists the AI model picks from. Entries on notes are never
+ * deleted: a deactivated tag stays on its notes but is no longer offered.
+ * Clusters only group tags, so they can be deleted.
  */
 export default async function TaxonomyPage() {
-  const { person } = await requireAdmin();
+  const { person } = await requireMaintainer();
   const taxonomy = await getTaxonomy(getDb(), viewerOf(person));
   const activeTags = taxonomy.tags.filter((t) => t.isActive);
   const clusterName = new Map(taxonomy.clusters.map((cluster) => [cluster.id, cluster.name]));
@@ -41,7 +47,7 @@ export default async function TaxonomyPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Taxonomy"
-        description="Tags, document types, and projects the AI model chooses from. New tags come only from here or from accepted proposals."
+        description="Tags, topic areas, and document types the AI model chooses from. New tags come only from here or from accepted proposals."
       />
 
       <Card role="region" aria-labelledby="proposals">
@@ -147,55 +153,96 @@ export default async function TaxonomyPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <ListCard
-          id="clusters"
-          title="Clusters"
-          description="Groups of tags, for the steward and the AI model."
-          create={<NameForm action={createClusterAction} id="new-cluster" label="New cluster" submitLabel="Add" clearOnSuccess />}
-          rows={taxonomy.clusters.map((cluster) => ({ id: cluster.id, name: cluster.name }))}
-        />
-        <ListCard
-          id="types"
-          title="Document types"
-          description="What kind of source a note is about."
-          create={<NameForm action={createDocumentTypeAction} id="new-type" label="New document type" submitLabel="Add" clearOnSuccess />}
-          rows={taxonomy.types.map((t) => ({
-            id: t.id,
-            name: t.name,
-            isActive: t.isActive,
-            toggle: <ActionButton action={setDocumentTypeActiveAction.bind(null, t.id, !t.isActive)} label={t.isActive ? "Deactivate" : "Activate"} />,
-          }))}
-        />
-        <ListCard
-          id="projects"
-          title="Projects"
-          description="Programs and projects a note can belong to."
-          create={<NameForm action={createProjectAction} id="new-project" label="New project" submitLabel="Add" clearOnSuccess />}
-          rows={taxonomy.projects.map((p) => ({
-            id: p.id,
-            name: p.name,
-            isActive: p.isActive,
-            toggle: <ActionButton action={setProjectActiveAction.bind(null, p.id, !p.isActive)} label={p.isActive ? "Deactivate" : "Activate"} />,
-          }))}
-        />
-      </div>
+      <Card role="region" aria-labelledby="clusters">
+        <CardHeader>
+          <CardTitle>
+            <h2 id="clusters">Clusters</h2>
+          </CardTitle>
+          <CardDescription>Groups of tags, for the forms, the weekly digest, and the AI model. Deleting a cluster keeps its tags, without a cluster.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <NameForm action={createClusterAction} id="new-cluster" label="New cluster" submitLabel="Add cluster" clearOnSuccess />
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Cluster</TableHead>
+                <TableHead className="text-right">Tags</TableHead>
+                <TableHead>
+                  <span className="sr-only">Actions</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {taxonomy.clusters.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={3} className="text-muted-foreground">
+                    No clusters yet.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                taxonomy.clusters.map((cluster) => (
+                  <TableRow key={cluster.id}>
+                    <TableCell>
+                      <NameForm action={renameClusterAction.bind(null, cluster.id)} id={`cluster-${cluster.id}`} label={`Name of the cluster ${cluster.name}`} defaultValue={cluster.name} submitLabel="Save" />
+                    </TableCell>
+                    <TableCell className="text-right">{cluster.tags}</TableCell>
+                    <TableCell>
+                      <ActionButton action={deleteClusterAction.bind(null, cluster.id)} label="Delete" />
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <EntryCard
+        id="topic-areas"
+        title="Topic areas"
+        kind="Topic area"
+        description="The one area a note is mainly about, besides its tags. The library can be filtered by it. The description tells the AI model what an area covers."
+        rows={taxonomy.topicAreas.map((area) => ({
+          ...area,
+          update: updateTopicAreaAction.bind(null, area.id),
+          toggle: setTopicAreaActiveAction.bind(null, area.id, !area.isActive),
+        }))}
+        create={createTopicAreaAction}
+      />
+
+      <EntryCard
+        id="types"
+        title="Document types"
+        kind="Document type"
+        description="What kind of source a note is about. The description tells the AI model what a type covers."
+        rows={taxonomy.types.map((type) => ({
+          ...type,
+          update: updateDocumentTypeAction.bind(null, type.id),
+          toggle: setDocumentTypeActiveAction.bind(null, type.id, !type.isActive),
+        }))}
+        create={createDocumentTypeAction}
+      />
     </div>
   );
 }
 
-function ListCard({
+type Action = (state: FormState, formData: FormData) => Promise<FormState>;
+
+/** A list of document types or topic areas: name and description, how many notes use each, and whether it is offered. */
+function EntryCard({
   id,
   title,
+  kind,
   description,
   create,
   rows,
 }: {
   id: string;
   title: string;
+  kind: string;
   description: string;
-  create: React.ReactNode;
-  rows: { id: string; name: string; isActive?: boolean; toggle?: React.ReactNode }[];
+  create: Action;
+  rows: { id: string; name: string; description: string; isActive: boolean; notes: number; update: Action; toggle: Action }[];
 }) {
   return (
     <Card role="region" aria-labelledby={id}>
@@ -205,17 +252,44 @@ function ListCard({
         </CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {create}
-        <ul className="flex flex-col divide-y text-sm">
-          {rows.length === 0 ? <li className="py-2 text-muted-foreground">None yet.</li> : null}
-          {rows.map((row) => (
-            <li key={row.id} className="flex items-center justify-between gap-2 py-1.5">
-              <span className={row.isActive === false ? "text-muted-foreground line-through" : undefined}>{row.name}</span>
-              {row.toggle}
-            </li>
-          ))}
-        </ul>
+      <CardContent className="flex flex-col gap-4">
+        <EntryForm action={create} kind={kind} submitLabel={`Add ${kind.toLowerCase()}`} clearOnSuccess />
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{kind}</TableHead>
+              <TableHead className="text-right">Notes</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>
+                <span className="sr-only">Actions</span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={4} className="text-muted-foreground">
+                  None yet.
+                </TableCell>
+              </TableRow>
+            ) : (
+              rows.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell>
+                    <EntryForm action={row.update} kind={kind} defaults={{ name: row.name, description: row.description }} submitLabel="Save" />
+                  </TableCell>
+                  <TableCell className="text-right">{row.notes}</TableCell>
+                  <TableCell>
+                    <Badge variant={row.isActive ? "secondary" : "outline"}>{row.isActive ? "Active" : "Inactive"}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <ActionButton action={row.toggle} label={row.isActive ? "Deactivate" : "Activate"} />
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
       </CardContent>
     </Card>
   );

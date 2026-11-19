@@ -12,7 +12,7 @@ has confirmed; it needs no AI model of its own.
 - Never drafts, discarded notes, or notes with the visibility "Only me".
 
 A note is sent when it is published, and again whenever it changes: an edit,
-a new visibility, or a steward's check. Every request carries the whole note
+a new visibility, or a maintainer's check. Every request carries the whole note
 as it is now, so a receiver stores it by `note.id` and replaces what it had.
 When a note becomes private or is deleted, the receiver gets a removal.
 
@@ -41,7 +41,7 @@ first nightly run after the webhook is turned on sends every published note.
     "team": { "name": "Programs", "directory_id": "4f0c…" },
     "owner": "Erika Example",
     "document_type": "Study",
-    "project": null,
+    "topic_area": "Civil society",
     "tags": ["Governance", "Volunteering"],
     "source_url": null,
     "doi": "10.1234/example",
@@ -57,7 +57,7 @@ first nightly run after the webhook is turned on sends every published note.
 - `text` is the note as one plain text, as a search index or an AI assistant
   should read it. It ends with a line that says the summary was drafted by
   an AI model, confirmed by the owner, and (when `checked`) checked by a
-  steward.
+  maintainer.
 - `visibility`: `all` for everyone with access to the library, `team` for
   the owner's team only. A receiver that shows notes to people must apply
   this itself.
@@ -65,9 +65,9 @@ first nightly run after the webhook is turned on sends every published note.
   in Keycloak with `DIRECTORY=keycloak`, and null for teams managed in the
   library.
 - `language` is the ISO 639-1 code of the source's language, or null.
-- `quotes[].location`, `document_type`, `project`, `source_url` (links only),
+- `quotes[].location`, `document_type`, `topic_area`, `source_url` (links only),
   and `doi` can be null.
-- `checked` is true once a steward has checked the note against its source.
+- `checked` is true once a maintainer has checked the note against its source.
 - `ai_drafted` is always true.
 - `changed_at` is the time of the last edit, or `published_at` without one.
 

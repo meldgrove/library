@@ -12,15 +12,24 @@ export const MAIN_NAV = [
   { key: "uploads", href: "/uploads", label: "My uploads" },
 ] as const;
 
+/** For maintainers (and admins): looking after the content. */
+export const MAINTENANCE_NAV = [
+  { key: "maintenance", href: "/maintenance", label: "Maintenance" },
+  { key: "taxonomy", href: "/maintenance/taxonomy", label: "Taxonomy" },
+] as const;
+
+/** For admins: running the app. */
 export const ADMIN_NAV = [
-  { key: "steward", href: "/steward", label: "Steward" },
   { key: "admin", href: "/admin", label: "Admin" },
-  { key: "taxonomy", href: "/admin/taxonomy", label: "Taxonomy" },
   { key: "people", href: "/admin/people", label: "People" },
   { key: "teams", href: "/admin/teams", label: "Teams" },
 ] as const;
 
-export type NavKey = typeof UPLOAD.key | (typeof MAIN_NAV)[number]["key"] | (typeof ADMIN_NAV)[number]["key"];
+export type NavKey =
+  | typeof UPLOAD.key
+  | (typeof MAIN_NAV)[number]["key"]
+  | (typeof MAINTENANCE_NAV)[number]["key"]
+  | (typeof ADMIN_NAV)[number]["key"];
 
 /** The sidebar item a page belongs to. Note pages belong to the library. */
 export function activeNavKey(pathname: string): NavKey | undefined {
@@ -28,9 +37,9 @@ export function activeNavKey(pathname: string): NavKey | undefined {
   if (pathname === "/upload") return "upload";
   if (pathname === "/uploads" || pathname.startsWith("/uploads/")) return "uploads";
   if (pathname === "/review") return "review";
-  if (pathname === "/steward") return "steward";
+  if (pathname === "/maintenance") return "maintenance";
+  if (pathname === "/maintenance/taxonomy") return "taxonomy";
   if (pathname === "/admin") return "admin";
-  if (pathname === "/admin/taxonomy") return "taxonomy";
   if (pathname === "/admin/people") return "people";
   if (pathname === "/admin/teams") return "teams";
   return undefined;
@@ -42,7 +51,8 @@ export interface Crumb {
   href?: string;
 }
 
-const ADMIN_PAGES: Record<string, string> = { taxonomy: "Taxonomy", people: "People", teams: "Teams" };
+const MAINTENANCE_PAGES: Record<string, string> = { taxonomy: "Taxonomy" };
+const ADMIN_PAGES: Record<string, string> = { people: "People", teams: "Teams" };
 
 /** "LIB-12" for a note path segment such as "12". */
 function noteCrumb(segment: string): string {
@@ -62,8 +72,10 @@ export function breadcrumbsFor(pathname: string): Crumb[] {
       return [{ label: "My uploads" }];
     case "review":
       return [{ label: "My review" }];
-    case "steward":
-      return [{ label: "Steward" }];
+    case "maintenance": {
+      const page = child ? MAINTENANCE_PAGES[child] : undefined;
+      return page ? [{ label: "Maintenance", href: "/maintenance" }, { label: page }] : [{ label: "Maintenance" }];
+    }
     case "n": {
       if (!child) return [{ label: "Library" }];
       return segments[2] === "edit"

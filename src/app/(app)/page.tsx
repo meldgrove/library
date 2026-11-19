@@ -28,7 +28,7 @@ export default async function LibraryPage({ searchParams }: PageProps<"/">) {
     q: one(params.q)?.slice(0, 200),
     tagId: uuid(one(params.tag)),
     documentTypeId: uuid(one(params.type)),
-    projectId: uuid(one(params.project)),
+    topicAreaId: uuid(one(params.topic)),
     teamId: uuid(one(params.team)),
   };
   const db = getDb();
@@ -87,12 +87,12 @@ export default async function LibraryPage({ searchParams }: PageProps<"/">) {
               </NativeSelectOption>
             ))}
           </NativeSelect>
-          {options.projects.length > 0 ? (
-            <NativeSelect name="project" defaultValue={filters.projectId ?? ""} aria-label="Project" size="sm">
-              <NativeSelectOption value="">All projects</NativeSelectOption>
-              {options.projects.map((p) => (
-                <NativeSelectOption key={p.id} value={p.id}>
-                  {p.name}
+          {options.topicAreas.length > 0 ? (
+            <NativeSelect name="topic" defaultValue={filters.topicAreaId ?? ""} aria-label="Topic area" size="sm">
+              <NativeSelectOption value="">All topic areas</NativeSelectOption>
+              {options.topicAreas.map((area) => (
+                <NativeSelectOption key={area.id} value={area.id}>
+                  {area.name}
                 </NativeSelectOption>
               ))}
             </NativeSelect>

@@ -39,6 +39,8 @@ export interface DirectorySync {
   readonly accessGroup: string;
   /** Members of this Keycloak group are admins. */
   readonly adminGroup: string;
+  /** Members of this Keycloak group are maintainers, or nobody is when it is not set. */
+  readonly maintainerGroup: string | null;
   /** Runs a sync, unless one is running or (with `minIntervalMs`) the last one started too recently. */
   run(trigger: SyncTrigger, minIntervalMs?: number): Promise<SyncResult>;
 }
@@ -84,11 +86,13 @@ export function createDirectory(config: DirectoryConfig, pool: () => Pool): Dire
     clientSecret: config.KEYCLOAK_CLIENT_SECRET,
     accessGroup: config.KEYCLOAK_ACCESS_GROUP,
     adminGroup: config.KEYCLOAK_ADMIN_GROUP,
+    maintainerGroup: config.KEYCLOAK_MAINTAINER_GROUP,
     teamsGroup: config.KEYCLOAK_TEAMS_GROUP,
   });
   return createKeycloakDirectory({
     accessGroup: config.KEYCLOAK_ACCESS_GROUP,
     adminGroup: config.KEYCLOAK_ADMIN_GROUP,
+    maintainerGroup: config.KEYCLOAK_MAINTAINER_GROUP ?? null,
     run: (trigger, minIntervalMs) => syncDirectory({ pool: pool(), adapter, trigger, minIntervalMs }),
   });
 }

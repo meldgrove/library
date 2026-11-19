@@ -8,6 +8,7 @@ import { NoteReview } from "@/components/library/note-review";
 import { NoteView } from "@/components/library/note-view";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
+import { canMaintain } from "@/lib/auth/roles";
 import { getFormatter, requireUser } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { canEditNote, canSeeNote, viewerOf } from "@/lib/library/access";
@@ -62,10 +63,10 @@ export default async function NotePage({ params }: PageProps<"/n/[number]">) {
         }
       />
       <NoteView detail={detail} fmt={fmt} />
-      {person.isAdmin && note.status === "published" && !note.checkedAt ? (
-        <section aria-labelledby="steward-check" className="flex flex-col gap-2 rounded-lg border p-4">
-          <h2 id="steward-check" className="text-sm font-medium">
-            Steward check
+      {canMaintain(person.role) && note.status === "published" && !note.checkedAt ? (
+        <section aria-labelledby="maintainer-check" className="flex flex-col gap-2 rounded-lg border p-4">
+          <h2 id="maintainer-check" className="text-sm font-medium">
+            Maintainer check
           </h2>
           <p className="text-sm text-muted-foreground">Mark the note as checked against its source. Readers and connected tools see the mark.</p>
           <ActionButton action={checkNoteAction.bind(null, note.id, note.number)} label="Mark as checked" variant="outline" />

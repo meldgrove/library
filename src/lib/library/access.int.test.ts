@@ -3,7 +3,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { note, source } from "@/lib/db/schema";
 import { connectTestDatabase } from "../../../tests/integration/db";
 import { seedDirectory } from "../../../tests/integration/seed";
-import { canSeeNote, viewerOf, visibleNotes } from "./access";
+import { canEditNote, canSeeNote, viewerOf, visibleNotes, type Viewer } from "./access";
 import { NOTE_STATUSES, VISIBILITIES } from "./constants";
 import { listNotes } from "./notes";
 
@@ -37,11 +37,23 @@ describe("note access", () => {
       }
     }
     const notes = await db.select().from(note);
-    for (const person of [seed.people.ada, seed.people.dan, seed.people.amy]) {
-      const viewer = viewerOf(person);
+    // Dan as a maintainer too: the seed has members and an admin.
+    const viewers: Viewer[] = [...[seed.people.ada, seed.people.dan, seed.people.amy].map(viewerOf), { ...viewerOf(seed.people.dan), role: "maintainer" }];
+    for (const viewer of viewers) {
       const visible = new Set((await db.select({ id: note.id }).from(note).where(visibleNotes(viewer))).map((row) => row.id));
-      for (const row of notes) expect(visible.has(row.id), `${person.displayName} · ${row.status} · ${row.visibility} · owner ${row.ownerId === person.id}`).toBe(canSeeNote(viewer, row));
+      for (const row of notes) expect(visible.has(row.id), `${viewer.role} ${viewer.personId} · ${row.status} · ${row.visibility} · owner ${row.ownerId === viewer.personId}`).toBe(canSeeNote(viewer, row));
     }
+  });
+
+  it("lets maintainers and admins see and edit every note but private ones; members only their own and published ones", () => {
+    const draft = { status: "draft", visibility: "team", ownerId: "ada", teamId: "tech" } as const;
+    const privateDraft = { ...draft, visibility: "private" } as const;
+    const viewer = (role: Viewer["role"]): Viewer => ({ personId: "dan", teamId: "ops", role });
+    for (const role of ["maintainer", "admin"] as const) {
+      expect([canSeeNote(viewer(role), draft), canEditNote(viewer(role), draft)]).toEqual([true, true]);
+      expect([canSeeNote(viewer(role), privateDraft), canEditNote(viewer(role), privateDraft)]).toEqual([false, false]);
+    }
+    expect([canSeeNote(viewer("member"), draft), canEditNote(viewer("member"), draft)]).toEqual([false, false]);
   });
 
   it("lists only published notes the viewer may see, and searches them", async () => {

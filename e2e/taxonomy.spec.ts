@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { query, runId, signIn } from "./helpers";
 
-test("a steward can resolve visible tag proposals while private ones stay hidden", async ({ page }) => {
+test("a maintainer can resolve visible tag proposals while private ones stay hidden", async ({ page }) => {
   const visibleTitle = `Shared note ${runId}`;
   const privateTitle = `Private note ${runId}`;
   const proposal = `Heat islands ${runId}`;
@@ -21,9 +21,9 @@ test("a steward can resolve visible tag proposals while private ones stay hidden
     [visibleTitle, privateTitle, proposal, `https://example.org/shared-${runId}`, `https://example.org/private-${runId}`],
   );
 
-  await signIn(page, "adam");
+  await signIn(page, "maya");
   await expect(page.getByRole("heading", { name: "Library", level: 1 })).toBeVisible();
-  await page.goto("/admin/taxonomy");
+  await page.goto("/maintenance/taxonomy");
   const proposals = page.getByRole("region", { name: "Tag proposals" });
   const shared = proposals.getByRole("row").filter({ hasText: visibleTitle });
   await expect(shared).toContainText(proposal);

@@ -32,13 +32,13 @@ export interface NoteFormProps {
     citation: string;
     language: string;
     documentTypeId: string;
-    projectId: string;
+    topicAreaId: string;
     tagIds: string[];
     visibility: Visibility;
   };
   uncertainFields: string[];
   documentTypes: Option[];
-  projects: Option[];
+  topicAreas: Option[];
   tagGroups: { cluster: string; tags: Option[] }[];
   /** The owner's team, for "My team"; null when the owner has none. */
   teamName: string | null;
@@ -56,7 +56,7 @@ function Unsure({ show }: { show: boolean }) {
 }
 
 /** The review of a note: every field of the template, then publish or save. */
-export function NoteForm({ action, status, defaults, uncertainFields, documentTypes, projects, tagGroups, teamName, visibilityDescriptions }: NoteFormProps) {
+export function NoteForm({ action, status, defaults, uncertainFields, documentTypes, topicAreas, tagGroups, teamName, visibilityDescriptions }: NoteFormProps) {
   const [state, dispatch, pending] = useActionState(action, {});
   const intent = useRef<"save" | "publish">(status === "draft" ? "publish" : "save");
   const id = useId();
@@ -144,20 +144,20 @@ export function NoteForm({ action, status, defaults, uncertainFields, documentTy
           </NativeSelect>
           <FieldError>{error("documentTypeId")}</FieldError>
         </Field>
-        <Field data-invalid={error("projectId") ? true : undefined}>
-          <FieldLabel htmlFor={`${id}-project`}>
-            Project
-            <Unsure show={unsure("project")} />
+        <Field data-invalid={error("topicAreaId") ? true : undefined}>
+          <FieldLabel htmlFor={`${id}-topic-area`}>
+            Topic area
+            <Unsure show={unsure("topicArea")} />
           </FieldLabel>
-          <NativeSelect id={`${id}-project`} name="projectId" defaultValue={defaults.projectId}>
-            <NativeSelectOption value="">None</NativeSelectOption>
-            {projects.map((p) => (
-              <NativeSelectOption key={p.id} value={p.id}>
-                {p.name}
+          <NativeSelect id={`${id}-topic-area`} name="topicAreaId" defaultValue={defaults.topicAreaId}>
+            <NativeSelectOption value="">Not set</NativeSelectOption>
+            {topicAreas.map((area) => (
+              <NativeSelectOption key={area.id} value={area.id}>
+                {area.name}
               </NativeSelectOption>
             ))}
           </NativeSelect>
-          <FieldError>{error("projectId")}</FieldError>
+          <FieldError>{error("topicAreaId")}</FieldError>
         </Field>
         <Field data-invalid={error("language") ? true : undefined}>
           <FieldLabel htmlFor={`${id}-language`}>
@@ -197,7 +197,7 @@ export function NoteForm({ action, status, defaults, uncertainFields, documentTy
         <Field>
           <FieldLabel htmlFor={`${id}-new-tags`}>Propose new tags</FieldLabel>
           <Input id={`${id}-new-tags`} name="newTags" placeholder="Separated by commas" />
-          <FieldDescription>A steward decides whether they join the list.</FieldDescription>
+          <FieldDescription>A maintainer decides whether they join the list.</FieldDescription>
         </Field>
       </FieldSet>
 

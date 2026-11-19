@@ -14,8 +14,18 @@ an admin, and which team each person belongs to.
 | Keycloak | OIDC | `manual` or `keycloak` |
 | Microsoft Entra ID, Google, Okta, Authentik, Zitadel, or another OIDC provider | OIDC | `manual` |
 
-Admins are the library's **stewards**: they maintain the taxonomy, decide
-uploads on hold, check and delete notes, and manage people and teams.
+## Roles
+
+Each person has one role. Each role can do everything the one before it can.
+
+| Role | Can |
+|---|---|
+| Member | Add sources (in the browser, by Slack, by email), review and publish their own drafts, edit and delete their own notes, read the notes they may see, and follow tags |
+| Maintainer | Look after the content: see and edit every note that is not private, mark published notes as checked, release or delete uploads on hold, and keep the taxonomy. Under **Maintenance** in the sidebar |
+| Admin | Run the app: people and their roles, teams and their digest channels, the directory sync, notifications, and the webhook. Under **Administration** in the sidebar |
+
+Maintainers and admins get the emails about uploads on hold and drafts
+nobody has reviewed for 30 days. Someone without access is always a member.
 
 Whichever directory you use, the library never deletes people. Someone who
 leaves loses access, and their name stays on their notes.
@@ -24,9 +34,9 @@ leaves loses access, and their name stays on their notes.
 
 | Note | Who sees it |
 |---|---|
-| Draft or discarded | Its owner (the uploader) and the stewards; private ones only the owner |
+| Draft or discarded | Its owner (the uploader), maintainers, and admins; private ones only the owner |
 | Published, "Everyone" | Everyone with access |
-| Published, "My team" | The owner's team, the owner, and the stewards |
+| Published, "My team" | The owner's team, the owner, maintainers, and admins |
 | Published, "Only me" | The owner only. Never sent to the webhook or a digest |
 
 ## OpenID Connect login
@@ -81,24 +91,28 @@ then go to whoever enters that address first.
    means its owner's team; people without a team can share with everyone or
    keep notes to themselves.
 3. Under **Admin → People**, invite people with their email address, a name,
-   and optionally a team. An invited person gets access at their first login
+   a role, and optionally a team. An invited person gets access at their first login
    with the same verified email address; the name from the provider then
    replaces the one in the invitation.
-4. On the same page, admins change names and teams, make people admins, and
-   take access away. Taking access away ends the person's sessions at once.
+4. On the same page, admins change names, teams, and roles, and take access
+   away. Taking access away ends the person's sessions at once.
    Nobody can take away their own access, and the last admin always stays.
 
 Anyone else who signs in at the provider sees "No access".
 
 ## Keycloak directory
 
-The library reads the members of three Keycloak groups through the Keycloak
-Admin API. All three are required:
+The library reads the members of Keycloak groups through the Keycloak Admin
+API. The access, admin, and teams groups are required; the maintainer group is
+optional:
 
 - Members of `KEYCLOAK_ACCESS_GROUP`, and of its subgroups, have access.
   Disabled users do not.
 - Members of `KEYCLOAK_ADMIN_GROUP` (and its subgroups) are admins, and have
   access too.
+- Members of `KEYCLOAK_MAINTAINER_GROUP` (and its subgroups) are maintainers,
+  and have access too. Someone in both groups is an admin. Without this
+  group, there are no maintainers; admins look after the content.
 - Each direct subgroup of `KEYCLOAK_TEAMS_GROUP` is a team (the group itself
   is not). A person in several teams belongs to the first one by name.
   Members of a team's subgroups belong to that team. Being in a team does not
@@ -111,9 +125,10 @@ Admin API. All three are required:
 For example:
 
 ```text
-/library            ← KEYCLOAK_ACCESS_GROUP=/library
-/library-admins     ← KEYCLOAK_ADMIN_GROUP=/library-admins (the stewards)
-/teams              ← KEYCLOAK_TEAMS_GROUP=/teams
+/library               ← KEYCLOAK_ACCESS_GROUP=/library
+/library-admins        ← KEYCLOAK_ADMIN_GROUP=/library-admins
+/library-maintainers   ← KEYCLOAK_MAINTAINER_GROUP=/library-maintainers
+/teams                 ← KEYCLOAK_TEAMS_GROUP=/teams
   /Engineering
   /Operations
 ```
@@ -147,6 +162,7 @@ team. Someone who signs in before the next sync triggers a sync of their own
    DIRECTORY=keycloak
    KEYCLOAK_ACCESS_GROUP=/library
    KEYCLOAK_ADMIN_GROUP=/library-admins
+   KEYCLOAK_MAINTAINER_GROUP=/library-maintainers   # optional
    KEYCLOAK_TEAMS_GROUP=/teams
    ```
 

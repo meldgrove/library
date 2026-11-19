@@ -29,7 +29,7 @@ every Compose command, `export COMPOSE_FILE=compose.dev.yaml` in your shell.
 | Mailpit | SMTP `localhost:1026`, web http://localhost:8026 | none |
 
 Test users in the development Keycloak (password `library-dev`): `erika`
-(has access), `adam` (admin), and `olga` (no access). The worker drafts
+(member), `maya` (maintainer), `adam` (admin), and `olga` (no access). The worker drafts
 uploads with a fake AI model (`AI_PROVIDER=fake`), and messages are only
 logged (`NOTIFICATION_TRANSPORT=console`); `.env.example` shows how to send
 emails to Mailpit instead.

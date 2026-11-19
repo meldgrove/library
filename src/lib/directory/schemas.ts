@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ROLES } from "@/lib/auth/roles";
 import { DATE_FORMATS, isTimeZone } from "@/lib/preferences";
 
 /* Forms of the manual directory and of the personal settings, shared by the browser and the Server Actions. */
@@ -27,10 +28,7 @@ export const invitePersonSchema = z.object({
     .pipe(z.email({ error: "Enter a valid email address." })),
   name: name("Name", PERSON_NAME_MAX),
   teamId: optionalTeam,
-  isAdmin: z
-    .string()
-    .optional()
-    .transform((value) => value === "on"),
+  role: z.enum(ROLES, { error: "Choose a role." }).default("member"),
 });
 
 export const updatePersonSchema = z.object({

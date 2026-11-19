@@ -1,12 +1,12 @@
 import { expect, test } from "@playwright/test";
 import { expectAccessible, query, signIn } from "./helpers";
 
-/* The weekly digest: a steward chooses the Slack channel of a team's digest. */
+/* The weekly digest: an admin chooses the Slack channel of a team's digest. */
 
 const channelOf = async (teamName: string) =>
   (await query<{ channel: string | null }>("select digest_slack_channel_id as channel from team where name = $1", [teamName]))[0]?.channel ?? null;
 
-test("a steward sets the Slack channel for a team's weekly digest", async ({ page }) => {
+test("an admin sets the Slack channel for a team's weekly digest", async ({ page }) => {
   await signIn(page, "adam");
   await expect(page.getByRole("heading", { name: "Library", level: 1 })).toBeVisible();
   await page.goto("/admin/teams");

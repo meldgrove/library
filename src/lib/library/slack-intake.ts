@@ -205,7 +205,7 @@ async function personWithAccess(db: Database, email: string) {
 const NO_ACCESS: NotificationMessage = {
   subject: "Library",
   title: "Library",
-  text: "The library could not take your message: your Slack account does not belong to anyone with access to the library. If you should have access, ask a library steward.",
+  text: "The library could not take your message: your Slack account does not belong to anyone with access to the library. If you should have access, ask a library admin.",
   path: "/",
 };
 

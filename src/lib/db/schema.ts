@@ -14,6 +14,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { ROLES, type Role } from "@/lib/auth/roles";
 import type { NotificationChannels, NotificationMessage } from "@/lib/notifications/types";
 import type { DateFormat } from "@/lib/preferences";
 import {
@@ -50,6 +51,7 @@ const timestamptz = (name: string) => timestamp(name, { withTimezone: true });
 const uuidv7PrimaryKey = () => uuid("id").primaryKey().default(sql`uuidv7()`);
 const createdAt = () => timestamptz("created_at").notNull().defaultNow();
 const updatedAt = () => timestamptz("updated_at").notNull().defaultNow();
+const sqlList = (values: readonly string[]) => sql.raw(values.map((v) => `'${v}'`).join(", "));
 
 // ---------------------------------------------------------------------------
 // Better Auth (models user, session, account, verification)
@@ -141,7 +143,7 @@ export const team = pgTable("team", {
   externalId: text("external_id").unique(),
   name: text("name").notNull(),
   isActive: boolean("is_active").notNull().default(true),
-  /** Slack channel that gets the team's weekly digest; set by stewards in the library, also with the Keycloak directory. */
+  /** Slack channel that gets the team's weekly digest; set by admins in the library, also with the Keycloak directory. */
   digestSlackChannelId: text("digest_slack_channel_id"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
@@ -162,7 +164,8 @@ export const person = pgTable(
     workEmail: text("work_email"),
     teamId: uuid("team_id").references(() => team.id),
     hasAccess: boolean("has_access").notNull().default(false),
-    isAdmin: boolean("is_admin").notNull().default(false),
+    /** Member, maintainer (looks after the content), or admin (runs the app). Without access, always member. */
+    role: text("role").$type<Role>().notNull().default("member"),
     /** When `has_access` last changed. */
     accessChangedAt: timestamptz("access_changed_at").notNull().defaultNow(),
     /** Last directory sync that listed the person; empty for people managed in the library. */
@@ -181,6 +184,7 @@ export const person = pgTable(
   (table) => [
     index("person_has_access_idx").on(table.hasAccess),
     index("person_work_email_lower_idx").on(sql`lower(${table.workEmail})`),
+    check("person_role_check", sql`${table.role} in (${sqlList(ROLES)})`),
   ],
 );
 
@@ -217,10 +221,9 @@ export const workerHeartbeat = pgTable("worker_heartbeat", {
 });
 
 const tsvector = customType<{ data: string }>({ dataType: () => "tsvector" });
-const sqlList = (values: readonly string[]) => sql.raw(values.map((v) => `'${v}'`).join(", "));
 
 // ---------------------------------------------------------------------------
-// Taxonomy: closed lists the AI picks from; stewards maintain them
+// Taxonomy: closed lists the AI picks from; maintainers keep them
 // ---------------------------------------------------------------------------
 
 export const tagCluster = pgTable(
@@ -255,6 +258,8 @@ export const documentType = pgTable(
   {
     id: uuidv7PrimaryKey(),
     name: text("name").notNull(),
+    /** One line on what the type covers; given to the AI model with the type. */
+    description: text("description").notNull().default(""),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -262,17 +267,19 @@ export const documentType = pgTable(
   (table) => [uniqueIndex("document_type_name_lower_idx").on(sql`lower(${table.name})`)],
 );
 
-/** Programs and projects a note can belong to. */
-export const project = pgTable(
-  "project",
+/** The topic area a note is mainly about: a list of its own, besides the tags. */
+export const topicArea = pgTable(
+  "topic_area",
   {
     id: uuidv7PrimaryKey(),
     name: text("name").notNull(),
+    /** One line on what the area covers; given to the AI model with the area. */
+    description: text("description").notNull().default(""),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (table) => [uniqueIndex("project_name_lower_idx").on(sql`lower(${table.name})`)],
+  (table) => [uniqueIndex("topic_area_name_lower_idx").on(sql`lower(${table.name})`)],
 );
 
 // ---------------------------------------------------------------------------
@@ -337,7 +344,7 @@ export const sourceText = pgTable("source_text", {
  * One upload by one person. The worker moves it from `received` to a note
  * (`drafted`), or stops it: `quarantined` (screen hit), `duplicate` (the source
  * has a note), `blocked` (the source was discarded), or `parked` (extraction or
- * the AI draft failed; a steward decides).
+ * the AI draft failed; a maintainer decides).
  */
 export const submission = pgTable(
   "submission",
@@ -354,12 +361,12 @@ export const submission = pgTable(
     reason: text("reason").notNull().default(""),
     status: text("status").$type<SubmissionStatus>().notNull().default("received"),
     statusChangedAt: timestamptz("status_changed_at").notNull().defaultNow(),
-    /** Why the worker stopped (quarantined, parked, blocked), for the uploader and the steward. */
+    /** Why the worker stopped (quarantined, parked, blocked), for the uploader and the maintainer. */
     statusReason: text("status_reason"),
     screenFindings: jsonb("screen_findings").$type<ScreenFinding[]>().notNull().default(sql`'[]'::jsonb`),
     /** The note this upload became, or the existing note it duplicates. */
     noteId: uuid("note_id").references((): AnyPgColumn => note.id, { onDelete: "set null" }),
-    /** A steward let a quarantined upload pass the screen. */
+    /** A maintainer let a quarantined upload pass the screen. */
     releasedAt: timestamptz("released_at"),
     releasedById: uuid("released_by_id").references(() => person.id),
     attempts: integer("attempts").notNull().default(0),
@@ -461,17 +468,17 @@ export const note = pgTable(
     /** ISO 639-1 code of the source's language. */
     language: text("language"),
     documentTypeId: uuid("document_type_id").references(() => documentType.id),
-    projectId: uuid("project_id").references(() => project.id),
+    topicAreaId: uuid("topic_area_id").references(() => topicArea.id),
     /** Fields the AI model was unsure about; the review screen marks them. */
     uncertainFields: jsonb("uncertain_fields").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     draftModel: text("draft_model"),
     draftedAt: timestamptz("drafted_at"),
-    /** Review reminders: after a week to the owner, after 30 days to the stewards. */
+    /** Review reminders: after a week to the owner, after 30 days to the maintainers. */
     reminderSentAt: timestamptz("reminder_sent_at"),
     escalatedAt: timestamptz("escalated_at"),
     confirmedAt: timestamptz("confirmed_at"),
     confirmedById: uuid("confirmed_by_id").references(() => person.id),
-    /** A steward checked the published note. */
+    /** A maintainer checked the published note. */
     checkedAt: timestamptz("checked_at"),
     checkedById: uuid("checked_by_id").references(() => person.id),
     publishedAt: timestamptz("published_at"),
@@ -557,7 +564,7 @@ export const noteVersion = pgTable(
   (table) => [uniqueIndex("note_version_note_version_idx").on(table.noteId, table.version)],
 );
 
-/** A tag the AI model or a person asked for that is not in the list. Stewards accept or reject it. */
+/** A tag the AI model or a person asked for that is not in the list. Maintainers accept or reject it. */
 export const tagProposal = pgTable(
   "tag_proposal",
   {
@@ -594,7 +601,7 @@ export const auditEvent = pgTable(
     id: uuidv7PrimaryKey(),
     actorId: uuid("actor_id").references(() => person.id),
     action: text("action").notNull(),
-    /** note, submission, source, tag, document_type, project, person, or team. */
+    /** note, submission, source, tag, tag_cluster, document_type, topic_area, person, or team. */
     subjectType: text("subject_type").notNull(),
     subjectId: uuid("subject_id"),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),

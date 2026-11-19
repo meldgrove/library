@@ -1,3 +1,5 @@
+import type { Role } from "@/lib/auth/roles";
+
 /*
  * What an external directory (Keycloak) tells the library: the people who have
  * access, and the teams. A sync replaces the local projection with it.
@@ -19,7 +21,7 @@ export interface DirectoryPerson {
   email: string | null;
   /** `externalId` of the person's team, or null. */
   teamExternalId: string | null;
-  isAdmin: boolean;
+  role: Role;
 }
 
 export interface DirectorySnapshot {

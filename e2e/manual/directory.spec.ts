@@ -16,6 +16,8 @@ test("the first admin comes from INITIAL_ADMIN_EMAILS", async ({ page }) => {
   const adam = page.getByRole("row").filter({ hasText: "adam@example.test" });
   await expect(adam).toContainText("Active");
   await expect(adam).toContainText("Admin");
+  // The roles are explained in the page's description.
+  await expect(page.getByText(/take away their access instead\. Members add sources/)).toBeVisible();
   await expectAccessible(page);
 });
 

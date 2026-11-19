@@ -11,7 +11,7 @@ import { logger } from "@/lib/logger";
 
 // The replay test before launch (gate B): drafts every item of a test set with
 // the configured AI model and today's taxonomy, and compares tags, document
-// type, and project with the known answers. Writes nothing.
+// type, and topic area with the known answers. Writes nothing.
 //   npm run replay -- test-set.json
 // The format is in docs/taxonomy.md.
 async function main() {
@@ -47,7 +47,7 @@ async function main() {
       const draft = await draftNote(model, { text, reason: item.reason, ...lists });
       const score = scoreItem(item.expected, draft);
       scores.push(score);
-      console.log(`${index + 1}. ${label}: tags ${draft.tags.join(", ") || "-"} | recall ${score.tagRecall.toFixed(2)} | type ${score.documentType ?? "-"} | project ${score.project ?? "-"}${score.inventedProject ? " (invented)" : ""}`);
+      console.log(`${index + 1}. ${label}: tags ${draft.tags.join(", ") || "-"} | recall ${score.tagRecall.toFixed(2)} | type ${score.documentType ?? "-"} | topic area ${score.topicArea ?? "-"}${score.inventedTopicArea ? " (invented)" : ""}`);
     } catch (error) {
       failed += 1;
       console.log(`${index + 1}. ${label}: FAILED ${(error as Error).message}`);

@@ -13,6 +13,7 @@ test("a member of the access group signs in and sees the library", async ({ page
   await expect(page.getByRole("heading", { name: "Library", level: 1 })).toBeVisible();
   await expect(page.getByTestId("current-user")).toHaveText("Erika Employee");
   await expect(page.getByRole("link", { name: "Admin" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Maintenance" })).toHaveCount(0);
   await expectAccessible(page);
   expect(cspViolations).toEqual([]);
 });
@@ -33,9 +34,25 @@ test("pages carry a nonce-based Content Security Policy", async ({ page }) => {
   expect(new Set(scriptNonces)).toEqual(new Set([nonce]));
 });
 
-test("someone who is not an admin cannot open the admin pages", async ({ page }) => {
+test("a member cannot open the maintenance or admin pages", async ({ page }) => {
   await signIn(page, "erika");
   await expect(page.getByRole("heading", { name: "Library", level: 1 })).toBeVisible();
+  expect((await page.goto("/maintenance"))?.status()).toBe(404);
+  expect((await page.goto("/maintenance/taxonomy"))?.status()).toBe(404);
+  expect((await page.goto("/admin"))?.status()).toBe(404);
+  expect((await page.goto("/admin/people"))?.status()).toBe(404);
+});
+
+test("a member of the Keycloak maintainer group looks after the content, but cannot open the admin pages", async ({ page }) => {
+  await signIn(page, "maya");
+  // From the sidebar; on the Taxonomy page, the breadcrumb links to Maintenance too.
+  await page.getByRole("link", { name: "Maintenance", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Maintenance", level: 1 })).toBeVisible();
+  await page.getByRole("link", { name: "Taxonomy", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Taxonomy", level: 1 })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Topic areas" }).getByRole("row")).toHaveCount(37);
+  await expectAccessible(page);
+  await expect(page.getByRole("link", { name: "Admin", exact: true })).toHaveCount(0);
   expect((await page.goto("/admin"))?.status()).toBe(404);
   expect((await page.goto("/admin/people"))?.status()).toBe(404);
 });
@@ -44,8 +61,9 @@ test("a member of the Keycloak admin group sees the admin area", async ({ page }
   await signIn(page, "adam");
   await page.getByRole("link", { name: "Admin", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Admin", level: 1 })).toBeVisible();
-  await expect(page.getByText("People with access", { exact: true }).locator("..")).toContainText("2");
+  await expect(page.getByText("People with access", { exact: true }).locator("..")).toContainText("3");
   await expect(page.getByRole("main").getByRole("listitem").filter({ hasText: "Adam Admin" })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("listitem").filter({ hasText: "Maya Maintainer" })).toBeVisible();
   // The test worker only logs notifications.
   await expect(page.getByRole("heading", { name: "Notifications" })).toBeVisible();
   await expect(page.locator("dt", { hasText: /^Slack$/ }).locator("..")).toContainText("Log only (development)");
@@ -57,6 +75,7 @@ test("a member of the Keycloak admin group sees the admin area", async ({ page }
   await expect(page.getByRole("heading", { name: "People", level: 1 })).toBeVisible();
   const erika = page.getByRole("row").filter({ hasText: "Erika Employee" });
   await expect(erika).toContainText("Engineering");
+  await expect(page.getByRole("row").filter({ hasText: "Maya Maintainer" })).toContainText("Maintainer");
   await expect(page.getByRole("button", { name: "Invite" })).toHaveCount(0);
   await expectAccessible(page);
   await page.goto("/admin/teams");
@@ -108,10 +127,10 @@ test("someone removed from the access group loses their session at the next sync
     await expect(async () => {
       await admin.getByRole("button", { name: "Sync now" }).click();
       await expect(
-        admin.getByRole("status").filter({ hasText: /Sync finished: 1 person listed, 0 gained access, 1 lost access/ }),
+        admin.getByRole("status").filter({ hasText: /Sync finished: 2 people listed, 0 gained access, 1 lost access/ }),
       ).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 20_000, intervals: [3_000] });
-    await expect(admin.getByText("People with access", { exact: true }).locator("..")).toContainText("1");
+    await expect(admin.getByText("People with access", { exact: true }).locator("..")).toContainText("2");
 
     await member.reload();
     await expect(member).toHaveURL(/\/login$/);
@@ -120,7 +139,7 @@ test("someone removed from the access group loses their session at the next sync
     // Give the access back, so later tests can sign in as erika right away.
     await expect(async () => {
       await admin.getByRole("button", { name: "Sync now" }).click();
-      await expect(admin.getByRole("status").filter({ hasText: /Sync finished: 2 people listed, 1 gained access/ })).toBeVisible({ timeout: 2_000 });
+      await expect(admin.getByRole("status").filter({ hasText: /Sync finished: 3 people listed, 1 gained access/ })).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 20_000, intervals: [3_000] });
     await member.close();
     await admin.close();

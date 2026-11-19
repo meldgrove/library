@@ -7,9 +7,9 @@ describe("navigation", () => {
     expect(activeNavKey("/n/12")).toBe("library");
     expect(activeNavKey("/upload")).toBe("upload");
     expect(activeNavKey("/uploads")).toBe("uploads");
-    expect(activeNavKey("/admin/taxonomy")).toBe("taxonomy");
+    expect(activeNavKey("/maintenance/taxonomy")).toBe("taxonomy");
     expect(activeNavKey("/review")).toBe("review");
-    expect(activeNavKey("/steward")).toBe("steward");
+    expect(activeNavKey("/maintenance")).toBe("maintenance");
     expect(activeNavKey("/settings")).toBeUndefined();
   });
 
@@ -18,6 +18,7 @@ describe("navigation", () => {
     expect(breadcrumbsFor("/n/12")).toEqual([{ label: "Library", href: "/" }, { label: "LIB-12" }]);
     expect(breadcrumbsFor("/n/12/edit")).toEqual([{ label: "Library", href: "/" }, { label: "LIB-12", href: "/n/12" }, { label: "Edit" }]);
     expect(breadcrumbsFor("/admin/people")).toEqual([{ label: "Admin", href: "/admin" }, { label: "People" }]);
+    expect(breadcrumbsFor("/maintenance/taxonomy")).toEqual([{ label: "Maintenance", href: "/maintenance" }, { label: "Taxonomy" }]);
     expect(breadcrumbsFor("/nowhere")).toEqual([]);
   });
 });

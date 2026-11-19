@@ -10,7 +10,7 @@ const draft = (fields: Partial<NoteDraft>): NoteDraft => ({
   citation: "",
   language: "en",
   documentType: null,
-  project: null,
+  topicArea: null,
   tags: [],
   proposedTags: [],
   visibility: "all",
@@ -19,24 +19,24 @@ const draft = (fields: Partial<NoteDraft>): NoteDraft => ({
 });
 
 describe("replay", () => {
-  it("scores tags, document type, and project", () => {
-    const score = scoreItem({ tags: ["Climate", "Funding"], documentType: "Study", project: null }, draft({ tags: ["climate", "Cities"], documentType: "study", project: "Climate Lab" }));
-    expect(score).toEqual({ tagRecall: 0.5, tagPrecision: 0.5, documentType: true, project: false, inventedProject: true });
+  it("scores tags, document type, and topic area", () => {
+    const score = scoreItem({ tags: ["Climate", "Funding"], documentType: "Study", topicArea: null }, draft({ tags: ["climate", "Cities"], documentType: "study", topicArea: "Climate" }));
+    expect(score).toEqual({ tagRecall: 0.5, tagPrecision: 0.5, documentType: true, topicArea: false, inventedTopicArea: true });
   });
 
   it("skips what the test set does not state", () => {
-    expect(scoreItem({ tags: [] }, draft({}))).toMatchObject({ tagRecall: 1, documentType: null, project: null, inventedProject: false });
+    expect(scoreItem({ tags: [] }, draft({ topicArea: "Climate" }))).toMatchObject({ tagRecall: 1, documentType: null, topicArea: null, inventedTopicArea: false });
   });
 
   it("summarizes, counting failed drafts", () => {
     const summary = summarize(
       [
-        { tagRecall: 1, tagPrecision: 1, documentType: true, project: null, inventedProject: false },
-        { tagRecall: 0.5, tagPrecision: 0.5, documentType: false, project: true, inventedProject: true },
+        { tagRecall: 1, tagPrecision: 1, documentType: true, topicArea: null, inventedTopicArea: false },
+        { tagRecall: 0.5, tagPrecision: 0.5, documentType: false, topicArea: true, inventedTopicArea: true },
       ],
       1,
     );
-    expect(summary).toEqual({ items: 3, failed: 1, tagRecall: 0.75, tagPrecision: 0.75, documentTypeAccuracy: 0.5, projectAccuracy: 1, inventedProjects: 1 });
+    expect(summary).toEqual({ items: 3, failed: 1, tagRecall: 0.75, tagPrecision: 0.75, documentTypeAccuracy: 0.5, topicAreaAccuracy: 1, inventedTopicAreas: 1 });
   });
 
   it("needs a file or a link per item", () => {

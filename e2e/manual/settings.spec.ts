@@ -1,13 +1,13 @@
 import { expect, test } from "@playwright/test";
 import { expectAccessible, runId, signIn } from "../helpers";
 
-/* Personal digests, on the manual instance (its own database): a steward adds a tag, and follows it on Settings. */
+/* Personal digests, on the manual instance (its own database): a maintainer adds a tag, and follows it on Settings. */
 
 test("a person follows a tag for the weekly email", async ({ page }) => {
   const tagName = `Heat ${runId}`;
   await signIn(page, "adam");
   await expect(page.getByRole("heading", { name: "Library", level: 1 })).toBeVisible();
-  await page.goto("/admin/taxonomy");
+  await page.goto("/maintenance/taxonomy");
   await page.getByLabel("Tag name").fill(tagName);
   await page.getByRole("button", { name: "Add tag" }).click();
   // The new tag's row: its name in an editable field.

@@ -1,22 +1,23 @@
 import type { Metadata } from "next";
-import { ActionButton, InvitePersonForm, PersonForm } from "@/components/admin/directory-forms";
+import { ActionButton, InvitePersonForm, PersonForm, RoleForm } from "@/components/admin/directory-forms";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ROLE_HELP, ROLE_LABELS } from "@/lib/auth/roles";
 import { requireAdmin } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { getDirectory } from "@/lib/directory/directory";
 import { listPeople, listTeams } from "@/lib/directory/queries";
 import { personChanges } from "@/lib/directory/rules";
 import { actorOf } from "@/lib/form-actions";
-import { invitePersonAction, setPersonAccessAction, setPersonAdminAction, updatePersonAction } from "../directory-actions";
+import { invitePersonAction, setPersonAccessAction, setPersonRoleAction, updatePersonAction } from "../directory-actions";
 
 export const metadata: Metadata = { title: "People" };
 
 /**
  * Everyone the library knows. With the manual directory, admins invite people,
- * change names and teams, and give or take away access and admin rights.
+ * change names, teams, and roles, and give or take away access.
  * Nobody is deleted: people who leave keep their name on past entries.
  */
 export default async function PeoplePage() {
@@ -25,7 +26,7 @@ export default async function PeoplePage() {
   const editable = directory.editable;
   const [people, teams] = await Promise.all([listPeople(getDb()), listTeams(getDb())]);
   const activeTeams = teams.filter((t) => t.isActive).map((t) => ({ id: t.id, name: t.name }));
-  const adminsWithAccess = people.filter((p) => p.isAdmin && p.hasAccess).length;
+  const adminsWithAccess = people.filter((p) => p.role === "admin" && p.hasAccess).length;
   const changesOf = (p: (typeof people)[number]) => personChanges(directory, actorOf(user), p, adminsWithAccess);
 
   return (
@@ -34,8 +35,8 @@ export default async function PeoplePage() {
         title="People"
         description={
           editable
-            ? "Invited people get access at their first login with the same verified email address. People are never deleted; take away their access instead."
-            : "People, teams, and admin rights come from Keycloak. Change them there; the library syncs every 15 minutes."
+            ? `Invited people get access at their first login with the same verified email address. People are never deleted; take away their access instead. ${ROLE_HELP}`
+            : `People, teams, and roles come from Keycloak. Change them there; the library syncs every 15 minutes. ${ROLE_HELP}`
         }
       />
       {editable ? (
@@ -59,6 +60,7 @@ export default async function PeoplePage() {
                 <TableHead>{editable ? "Name and team" : "Name"}</TableHead>
                 {editable ? null : <TableHead>Team</TableHead>}
                 <TableHead>Email</TableHead>
+                <TableHead>Role</TableHead>
                 <TableHead>Status</TableHead>
                 {editable ? (
                   <TableHead>
@@ -70,7 +72,7 @@ export default async function PeoplePage() {
             <TableBody>
               {people.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-muted-foreground">
+                  <TableCell colSpan={5} className="text-muted-foreground">
                     Nobody yet.
                   </TableCell>
                 </TableRow>
@@ -97,6 +99,15 @@ export default async function PeoplePage() {
                       )}
                       <TableCell className="text-muted-foreground">{p.workEmail ?? "—"}</TableCell>
                       <TableCell>
+                        {editable && changes.role.ok ? (
+                          <RoleForm action={setPersonRoleAction.bind(null, p.id)} id={`person-${p.id}`} role={p.role} />
+                        ) : p.role === "member" ? (
+                          ROLE_LABELS.member
+                        ) : (
+                          <Badge variant={p.role === "admin" ? "default" : "secondary"}>{ROLE_LABELS[p.role]}</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
                         <span className="flex flex-wrap gap-1">
                           {!p.hasAccess ? (
                             <Badge variant="outline">No access</Badge>
@@ -105,19 +116,12 @@ export default async function PeoplePage() {
                           ) : (
                             <Badge variant="outline">Invited</Badge>
                           )}
-                          {p.isAdmin ? <Badge>Admin</Badge> : null}
                         </span>
                       </TableCell>
                       {editable ? (
                         <TableCell>
-                          {/* Changes the rules refuse are not offered: your own access, the last admin's rights. */}
+                          {/* Changes the rules refuse are not offered: your own access, the last admin's role. */}
                           <div className="flex flex-wrap gap-1">
-                            {changes.admin.ok ? (
-                              <ActionButton
-                                action={setPersonAdminAction.bind(null, p.id, !p.isAdmin)}
-                                label={p.isAdmin ? "Remove admin" : "Make admin"}
-                              />
-                            ) : null}
                             {changes.access.ok ? (
                               <ActionButton
                                 action={setPersonAccessAction.bind(null, p.id, !p.hasAccess)}

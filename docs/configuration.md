@@ -49,15 +49,16 @@ With `DIRECTORY=manual`:
 |---|---|---|
 | `INITIAL_ADMIN_EMAILS` | required | Email addresses, separated by commas. While the library has no admin, the first login with one of them (verified by the provider) becomes an admin. Without it, nobody could ever get in; afterwards it has no effect |
 
-With `DIRECTORY=keycloak` (needed by web and worker). All three groups are
-required: notes belong to their owner's team ("My team" visibility), and
-admins are the library's stewards. Write group paths with a leading slash
-and without a trailing one.
+With `DIRECTORY=keycloak` (needed by web and worker). The access, admin, and
+teams groups are required: notes belong to their owner's team ("My team"
+visibility), and someone has to run the library. Write group paths with a
+leading slash and without a trailing one.
 
 | Variable | Default | Value |
 |---|---|---|
 | `KEYCLOAK_ACCESS_GROUP` | required | Group path, e.g. `/library`. Its members, and members of its subgroups, have access |
-| `KEYCLOAK_ADMIN_GROUP` | required | Group path, e.g. `/library-admins`. Its members are admins, the library's stewards (and have access) |
+| `KEYCLOAK_ADMIN_GROUP` | required | Group path, e.g. `/library-admins`. Its members are admins (and have access) |
+| `KEYCLOAK_MAINTAINER_GROUP` | none (no maintainers) | Group path, e.g. `/library-maintainers`. Its members are maintainers, who look after the content (and have access). Someone in both groups is an admin |
 | `KEYCLOAK_TEAMS_GROUP` | required | Group path, e.g. `/teams`. Each direct subgroup is a team; it needs at least one |
 | `KEYCLOAK_CLIENT_ID` | `OIDC_CLIENT_ID` | Client with a service account that may read users and groups |
 | `KEYCLOAK_CLIENT_SECRET` | `OIDC_CLIENT_SECRET` | Its secret |
@@ -132,12 +133,12 @@ PDFs without a text layer (scans) need OCR. The Docker image includes
 
 | Variable | Default | Value |
 |---|---|---|
-| `OCR_COMMAND` | none (off; `ocrmypdf` in `compose.yaml`) | `ocrmypdf`, or another command that takes its arguments. Without it, scans are parked for a steward |
+| `OCR_COMMAND` | none (off; `ocrmypdf` in `compose.yaml`) | `ocrmypdf`, or another command that takes its arguments. Without it, scans are parked for a maintainer |
 | `OCR_LANGUAGES` | `deu+eng` | Tesseract language codes, joined with `+` |
 
 ## Notifications (worker)
 
-Email and Slack are each optional. Stewards get emails about uploads on hold,
+Email and Slack are each optional. Maintainers and admins get emails about uploads on hold,
 people who follow tags get a weekly email, and uploaders hear about their
 uploads by Slack direct message. When one channel is off, or cannot reach a
 person (no Slack account, no email address), the message goes out on the
@@ -207,7 +208,7 @@ Answers go out by email (or Slack), so set up
 ## Weekly digests (worker)
 
 Optional. Mondays at 09:00 in the server's time zone, the worker sends the
-notes published in the last 7 days. Stewards set a Slack channel for each
+notes published in the last 7 days. Admins set a Slack channel for each
 team under **Admin → Teams**; everyone can follow tags under **Settings** and
 gets their own email. These variables set where notes for everyone go. Add
 the library's Slack app to each Slack channel (or give it the

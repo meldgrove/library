@@ -19,7 +19,7 @@ export function snapshotOf(fields: {
   language: string | null;
   visibility: string;
   documentTypeId: string | null;
-  projectId: string | null;
+  topicAreaId: string | null;
   tagNames: string[];
 }): Record<string, unknown> {
   return {
@@ -31,7 +31,7 @@ export function snapshotOf(fields: {
     language: fields.language,
     visibility: fields.visibility,
     documentTypeId: fields.documentTypeId,
-    projectId: fields.projectId,
+    topicAreaId: fields.topicAreaId,
     tags: [...fields.tagNames].sort((a, b) => a.localeCompare(b)),
   };
 }

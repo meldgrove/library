@@ -1,6 +1,7 @@
 "use server";
 
 import { z } from "zod";
+import { ROLES } from "@/lib/auth/roles";
 import { getDb } from "@/lib/db/client";
 import { getDirectory } from "@/lib/directory/directory";
 import {
@@ -8,7 +9,7 @@ import {
   invitePerson,
   renameTeam,
   setPersonAccess,
-  setPersonAdmin,
+  setPersonRole,
   setTeamActive,
   updatePerson,
 } from "@/lib/directory/manage";
@@ -41,11 +42,13 @@ export async function setPersonAccessAction(personId: string, hasAccess: boolean
   }, boundValues.idAndFlag.safeParse([personId, hasAccess]));
 }
 
-export async function setPersonAdminAction(personId: string, isAdmin: boolean, _state: FormState, formData: FormData): Promise<FormState> {
-  return submit(formData, noFields, async (actor) => {
-    await setPersonAdmin(getDb(), getDirectory(), actor, personId, isAdmin);
+const roleSchema = z.object({ role: z.enum(ROLES, { error: "Choose a role." }) });
+
+export async function setPersonRoleAction(personId: string, _state: FormState, formData: FormData): Promise<FormState> {
+  return submit(formData, roleSchema, async (actor, input) => {
+    await setPersonRole(getDb(), getDirectory(), actor, personId, input.role);
     return "/admin/people";
-  }, boundValues.idAndFlag.safeParse([personId, isAdmin]));
+  }, boundValues.id.safeParse([personId]));
 }
 
 export async function createTeamAction(_state: FormState, formData: FormData): Promise<FormState> {

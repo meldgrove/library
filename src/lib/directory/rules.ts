@@ -1,3 +1,4 @@
+import { canAdminister, type Role } from "@/lib/auth/roles";
 import type { Actor } from "@/lib/commands";
 import type { Directory } from "./directory";
 
@@ -26,7 +27,7 @@ const LAST_ADMIN = "This is the last admin. Make someone else an admin first.";
  * Keycloak earlier can be changed too, once the directory is manual.
  */
 export function directoryChange(directory: Pick<Directory, "editable">, actor: Actor): Check {
-  if (!actor.isAdmin) return forbidden("Only admins can manage people and teams.");
+  if (!canAdminister(actor.role)) return forbidden("Only admins can manage people and teams.");
   if (!directory.editable) return forbidden("People and teams come from Keycloak. Change them there.");
   return ok;
 }
@@ -36,33 +37,33 @@ export interface PersonChanges {
   edit: Check;
   /** Taking access away, or giving it back. */
   access: Check;
-  /** Making the person an admin, or taking admin rights away. */
-  admin: Check;
+  /** Changing the person's role. */
+  role: Check;
 }
 
 /**
  * What an admin may change about one person. Nobody takes away their own
- * access, only people with access become admins, and the last admin keeps
- * access and admin rights. `adminsWithAccess` counts every admin with access,
- * the person included.
+ * access, only people with access get a role, and the last admin keeps
+ * access and the admin role. `adminsWithAccess` counts every admin with
+ * access, the person included.
  */
 export function personChanges(
   directory: Pick<Directory, "editable">,
   actor: Actor,
-  target: { id: string; hasAccess: boolean; isAdmin: boolean },
+  target: { id: string; hasAccess: boolean; role: Role },
   adminsWithAccess: number,
 ): PersonChanges {
   const base = directoryChange(directory, actor);
-  if (!base.ok) return { edit: base, access: base, admin: base };
-  const lastAdmin = target.hasAccess && target.isAdmin && adminsWithAccess <= 1;
+  if (!base.ok) return { edit: base, access: base, role: base };
+  const lastAdmin = target.hasAccess && target.role === "admin" && adminsWithAccess <= 1;
 
   let access = ok;
   if (target.hasAccess && target.id === actor.personId) access = invalid("You cannot take away your own access.");
   else if (lastAdmin) access = invalid(LAST_ADMIN);
 
-  let admin = ok;
-  if (!target.isAdmin && !target.hasAccess) admin = invalid("Give this person access first.");
-  else if (lastAdmin) admin = invalid(LAST_ADMIN);
+  let role = ok;
+  if (!target.hasAccess) role = invalid("Give this person access first.");
+  else if (lastAdmin) role = invalid(LAST_ADMIN);
 
-  return { edit: ok, access, admin };
+  return { edit: ok, access, role };
 }

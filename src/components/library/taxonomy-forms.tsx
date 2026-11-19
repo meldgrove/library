@@ -57,6 +57,40 @@ export function TagForm({
   );
 }
 
+/** Name and description of a document type or topic area; creates or updates it. */
+export function EntryForm({
+  action,
+  kind,
+  defaults,
+  submitLabel,
+  clearOnSuccess = false,
+}: {
+  action: Action;
+  /** "Document type" or "Topic area", for the labels. */
+  kind: string;
+  defaults?: { name: string; description: string };
+  submitLabel: string;
+  clearOnSuccess?: boolean;
+}) {
+  const { state, onSubmit, pending } = useFormAction(action);
+  const form = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (clearOnSuccess && state.done) form.current?.reset();
+  }, [clearOnSuccess, state]);
+  return (
+    <form ref={form} onSubmit={onSubmit} className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input name="name" defaultValue={defaults?.name} aria-label={`${kind} name`} placeholder={kind} required maxLength={80} className="w-72" aria-invalid={state.fieldErrors?.name ? true : undefined} />
+        <Input name="description" defaultValue={defaults?.description} aria-label={`What the ${kind.toLowerCase()} covers`} placeholder="What it covers (for the AI)" maxLength={300} className="min-w-48 flex-1" aria-invalid={state.fieldErrors?.description ? true : undefined} />
+        <Button type="submit" variant="outline" size="sm" disabled={pending}>
+          {submitLabel}
+        </Button>
+      </div>
+      <FieldError>{state.fieldErrors?.name ?? state.fieldErrors?.description ?? state.formError}</FieldError>
+    </form>
+  );
+}
+
 /** Accepts a proposed tag as a new tag, or maps it to an existing one. */
 export function ProposalForm({ action, name, clusters, tags }: { action: Action; name: string; clusters: Option[]; tags: Option[] }) {
   const { state, onSubmit, pending } = useFormAction(action);

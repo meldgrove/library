@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, exists, gte, inArray, isNotNull, lt, ne, sql, type SQL } from "drizzle-orm";
 import { recordAudit } from "@/lib/audit";
+import { canAdminister } from "@/lib/auth/roles";
 import { CommandError, type Actor } from "@/lib/commands";
 import type { Database, Transaction } from "@/lib/db/client";
 import { documentType, note, noteTag, person, tag, tagCluster, tagSubscription, team } from "@/lib/db/schema";
@@ -238,7 +239,7 @@ export async function recordWeeklyDigests(db: Database, now: Date, targets: Dige
 export async function recordPersonalDigests(db: Database, now: Date): Promise<number> {
   const window = digestWindow(now);
   const subscribers = await db
-    .select({ id: person.id, teamId: person.teamId, isAdmin: person.isAdmin })
+    .select({ id: person.id, teamId: person.teamId, role: person.role })
     .from(person)
     .where(and(eq(person.hasAccess, true), exists(db.select({ one: sql`1` }).from(tagSubscription).where(eq(tagSubscription.personId, person.id)))));
   let recorded = 0;
@@ -268,9 +269,9 @@ export async function recordPersonalDigests(db: Database, now: Date): Promise<nu
   return recorded;
 }
 
-/** A steward sets the Slack channel for a team's weekly digest, or removes it (null). */
+/** An admin sets the Slack channel for a team's weekly digest, or removes it (null). */
 export async function setTeamDigestChannel(db: Database, actor: Actor, teamId: string, channelId: string | null): Promise<void> {
-  if (!actor.isAdmin) throw new CommandError("forbidden", "Only stewards can do this.");
+  if (!canAdminister(actor.role)) throw new CommandError("forbidden", "Only admins can do this.");
   if (channelId !== null && !SLACK_CHANNEL_ID_PATTERN.test(channelId)) {
     throw new CommandError("invalid", "Enter a Slack channel ID such as C0123456789.", { channelId: "Enter a Slack channel ID such as C0123456789." });
   }
