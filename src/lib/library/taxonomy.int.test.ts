@@ -4,7 +4,7 @@ import { note, noteTag, source, tagProposal } from "@/lib/db/schema";
 import { connectTestDatabase } from "../../../tests/integration/db";
 import { seedDirectory } from "../../../tests/integration/seed";
 import { viewerOf } from "./access";
-import { stewardQueues } from "./review";
+import { recordReviewReminders, stewardQueues } from "./review";
 import { acceptTagProposal, getTaxonomy, rejectTagProposal } from "./taxonomy";
 
 const testDb = connectTestDatabase();
@@ -58,4 +58,19 @@ it.each(["accept", "reject"] as const)("can %s matching proposals only for visib
   await resolve(hidden.id);
   const [resolved] = await db.select().from(tagProposal).where(eq(tagProposal.id, hidden.id));
   expect(resolved?.status).toBe(decision === "accept" ? "accepted" : "rejected");
+});
+
+it("can accept proposals while the reminder job updates the same notes", async () => {
+  const { seed, restricted, shared, visible } = await setup();
+  const draftedAt = new Date("2026-01-01T00:00:00Z");
+  const now = new Date("2026-03-01T00:00:00Z");
+  await db.update(note).set({ draftedAt, reminderSentAt: draftedAt }).where(eq(note.id, shared.id));
+  await db.update(note).set({ draftedAt, visibility: "all" }).where(eq(note.id, restricted.id));
+
+  const [reminders] = await Promise.all([
+    recordReviewReminders(db, now),
+    acceptTagProposal(db, seed.actors.amy, visible.id, { existingTagId: seed.tags.budget.id }),
+  ]);
+  expect(reminders).toEqual({ reminded: 1, escalated: 2 });
+  expect(await db.select().from(noteTag)).toHaveLength(2);
 });

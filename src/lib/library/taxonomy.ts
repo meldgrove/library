@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { recordAudit } from "@/lib/audit";
 import { CommandError, type Actor } from "@/lib/commands";
@@ -32,6 +32,8 @@ function requireSteward(actor: Actor) {
 }
 
 const lower = (column: typeof tag.name | typeof tagCluster.name | typeof documentType.name | typeof project.name) => sql`lower(${column})`;
+const matchesIds = (column: typeof tagProposal.id | typeof tagProposal.noteId, ids: string[]) =>
+  sql`${column} = any(${sql.param(ids)}::uuid[])`;
 
 /** The active lists, as the AI draft gets them. */
 export async function draftLists(db: Database | Transaction) {
@@ -198,7 +200,7 @@ async function lockProposals(tx: Transaction, actor: Actor, proposalId: string) 
     .for("no key update", { of: note });
   const proposals = await tx.select({ id: tagProposal.id, noteId: tagProposal.noteId, status: tagProposal.status })
     .from(tagProposal)
-    .where(and(candidates, or(isNull(tagProposal.noteId), inArray(tagProposal.noteId, lockedNotes.map(({ id }) => id)))))
+    .where(and(candidates, or(isNull(tagProposal.noteId), matchesIds(tagProposal.noteId, lockedNotes.map(({ id }) => id)))))
     .orderBy(asc(tagProposal.id))
     .for("update");
   const proposal = proposals.find(({ id }) => id === proposalId);
@@ -231,7 +233,7 @@ export async function acceptTagProposal(
     await tx
       .update(tagProposal)
       .set({ status: "accepted", tagId, resolvedById: actor.personId, resolvedAt: new Date() })
-      .where(inArray(tagProposal.id, proposals.map(({ id }) => id)));
+      .where(matchesIds(tagProposal.id, proposals.map(({ id }) => id)));
     for (const proposal of proposals) {
       if (proposal.noteId) await tx.insert(noteTag).values({ noteId: proposal.noteId, tagId }).onConflictDoNothing();
     }
@@ -246,7 +248,7 @@ export async function rejectTagProposal(db: Database, actor: Actor, proposalId: 
     await tx
       .update(tagProposal)
       .set({ status: "rejected", resolvedById: actor.personId, resolvedAt: new Date() })
-      .where(inArray(tagProposal.id, proposals.map(({ id }) => id)));
+      .where(matchesIds(tagProposal.id, proposals.map(({ id }) => id)));
     await recordAudit(tx, { actorId: actor.personId, action: "tag_proposal.rejected", subjectType: "tag_proposal", subjectId: proposalId });
   });
 }
