@@ -111,12 +111,10 @@ export async function draftLists(db: Database | Transaction) {
 export async function getTaxonomy(db: Database, viewer: Viewer) {
   const [clusters, tags, types, topicAreas, proposals] = await Promise.all([
     db
-      .select({
-        id: tagCluster.id,
-        name: tagCluster.name,
-        tags: sql<number>`(select count(*)::int from tag where tag.cluster_id = ${tagCluster.id})`,
-      })
+      .select({ id: tagCluster.id, name: tagCluster.name, tags: sql<number>`count(${tag.id})::int` })
       .from(tagCluster)
+      .leftJoin(tag, eq(tag.clusterId, tagCluster.id))
+      .groupBy(tagCluster.id)
       .orderBy(lower(tagCluster.name)),
     db
       .select({

@@ -110,6 +110,7 @@ describe("clusters", () => {
   it("deletes a cluster and keeps its tags, without a cluster", async () => {
     const money = await createCluster(db, seed.actors.amy, "Money");
     await db.update(tag).set({ clusterId: money }).where(eq(tag.id, seed.tags.budget.id));
+    expect((await getTaxonomy(db, viewerOf(seed.people.amy))).clusters).toEqual([{ id: money, name: "Money", tags: 1 }]);
     await expect(deleteCluster(db, seed.actors.ada, money)).rejects.toMatchObject({ code: "forbidden" });
     await deleteCluster(db, seed.actors.amy, money);
     expect(await db.select().from(tagCluster)).toEqual([]);
