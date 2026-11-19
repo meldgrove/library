@@ -1,13 +1,17 @@
-import type { ErrorEvent, NodeOptions } from "@sentry/node";
+import type { ErrorEvent, EventHint, NodeOptions } from "@sentry/node";
 import type { ErrorReportingConfig } from "./config";
+import { databaseErrorSummary, type ErrorDetails } from "./db/error-summary";
 
-/**
- * Drizzle puts a failed query's values into the error message
- * ("Failed query: …\nparams: …"). They can hold entry text and email
- * addresses, so they never reach Sentry.
- */
-export function withoutQueryParameters(message: string): string {
-  return message.replace(/\nparams: [\s\S]*$/, "\nparams: [redacted]");
+function databaseSummaryFromCause(error: unknown): string | undefined {
+  const seen = new Set<object>();
+  while (error && typeof error === "object" && !seen.has(error)) {
+    seen.add(error);
+    const details = error as ErrorDetails;
+    const summary = databaseErrorSummary(typeof details.message === "string" ? details.message : "", details);
+    if (summary) return summary;
+    error = details.cause;
+  }
+  return undefined;
 }
 
 /**
@@ -16,17 +20,31 @@ export function withoutQueryParameters(message: string): string {
  */
 export function asError(error: unknown): unknown {
   if (error instanceof Error || typeof error !== "object" || error === null) return error;
-  const { message, stack } = error as { message?: unknown; stack?: unknown };
-  const converted = new Error(String(message));
-  if (typeof stack === "string") converted.stack = stack;
+  const { name, message, stack } = error as ErrorDetails;
+  const summary = databaseSummaryFromCause(error);
+  const converted = new Error(summary ?? String(message));
+  if (typeof stack === "string") {
+    if (summary) {
+      // Replace the full original header, including any multiline message.
+      const header = `${typeof name === "string" ? name : "Error"}: ${String(message)}`;
+      if (stack.startsWith(`${header}\n    at `)) converted.stack = `Error: ${summary}${stack.slice(header.length)}`;
+    } else {
+      converted.stack = stack;
+    }
+  }
   return converted;
 }
 
-function redactEvent(event: ErrorEvent): ErrorEvent {
-  for (const exception of event.exception?.values ?? []) {
-    if (exception.value) exception.value = withoutQueryParameters(exception.value);
-  }
-  if (event.message) event.message = withoutQueryParameters(event.message);
+function redactEvent(event: ErrorEvent, hint: EventHint): ErrorEvent {
+  const exceptions = event.exception?.values ?? [];
+  const summary = databaseSummaryFromCause(hint.originalException)
+    ?? exceptions.map(({ value }) => databaseErrorSummary(value ?? "")).find(Boolean)
+    ?? databaseErrorSummary(event.message ?? "");
+  if (!summary) return event;
+  // Sentry can report linked causes as separate exceptions. Keep their
+  // stack frames while replacing every message in the database error event.
+  for (const exception of exceptions) exception.value = summary;
+  if (event.message) event.message = summary;
   return event;
 }
 

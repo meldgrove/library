@@ -1,4 +1,5 @@
 import pino, { type DestinationStream } from "pino";
+import { databaseErrorSummary, type ErrorDetails } from "./db/error-summary";
 import { envValue } from "./env";
 
 /** JSON logs to stdout, for the container logs. */
@@ -19,7 +20,7 @@ export function createLogger(destination?: DestinationStream) {
           const { err, msg } = first as { err?: ErrorDetails; msg?: unknown };
           const error = first instanceof Error ? first : err;
           if (msg === undefined && typeof error?.message === "string") {
-            const message = databaseErrorMessage(error.message, error);
+            const message = databaseErrorSummary(error.message, error);
             if (message) return method.call(this, first, message);
           }
         }
@@ -31,30 +32,11 @@ export function createLogger(destination?: DestinationStream) {
 
 export const logger = createLogger();
 
-type ErrorDetails = { name?: unknown; message?: unknown; stack?: unknown; code?: unknown; severity?: unknown; cause?: unknown };
-
-function postgresCode(error: unknown): string | undefined {
-  if (!error || typeof error !== "object") return undefined;
-  const { code, severity } = error as ErrorDetails;
-  return typeof severity === "string" && typeof code === "string" && /^[0-9A-Z]{5}$/.test(code) ? code : undefined;
-}
-
-// Drizzle includes query values and PostgreSQL can repeat them in errors.
-// Accept the plain error objects emitted by pg-boss as well as Error instances.
-function databaseErrorMessage(message: string, error?: ErrorDetails): string | undefined {
-  if (message.startsWith("Failed query: ") && message.includes("\nparams: ")) {
-    const code = postgresCode(error?.cause);
-    return code ? `Database query failed (PostgreSQL ${code})` : "Database query failed";
-  }
-  const code = postgresCode(error);
-  return code ? `PostgreSQL error (${code})` : undefined;
-}
-
 function serializeError(value: unknown) {
   if (!value || typeof value !== "object") return errorMessage(value);
   const error = value as ErrorDetails;
   const message = typeof error.message === "string" ? error.message : "Unknown error";
-  const databaseMessage = databaseErrorMessage(message, error);
+  const databaseMessage = databaseErrorSummary(message, error);
   if (databaseMessage) return { message: databaseMessage };
   // The default serializer copies arbitrary fields and includes cause messages.
   return {
@@ -67,5 +49,5 @@ function serializeError(value: unknown) {
 export function errorMessage(error: unknown): string {
   const details = error && typeof error === "object" ? error as ErrorDetails : undefined;
   const message = typeof details?.message === "string" ? details.message : String(error);
-  return databaseErrorMessage(message, details) ?? message;
+  return databaseErrorSummary(message, details) ?? message;
 }
