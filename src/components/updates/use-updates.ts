@@ -1,16 +1,36 @@
 "use client";
 
 import { useEffect, useSyncExternalStore } from "react";
-import { installOutcome, isSlow, startWait, type Failure, type InstallWait } from "@/lib/updates/state";
+import {
+  afterInstallAnswer,
+  channelError,
+  checkError,
+  gaveUp,
+  installOutcome,
+  isSlow,
+  newAttempt,
+  RECONCILE_MS,
+  startWait,
+  type Failure,
+  type Fetched,
+  type InstallWait,
+} from "@/lib/updates/state";
 import { isUpdatesResponse, UPDATES_API, type Channel, type UpdatesResponse } from "@/lib/updates/types";
 
 /*
  * The update status in the browser, shared by the update button in the header
  * and the "Updates" card on /admin. It asks /api/admin/updates on page load,
  * every 5 minutes, and when the window regains focus (at most once a minute);
- * it never checks for updates by itself. While an installation runs, it asks
- * every 2 seconds and keeps asking while the library restarts.
+ * it never checks for updates by itself. While it follows an installation, it
+ * asks every 2 seconds and keeps asking while the library restarts
+ * (docs/deployment.md, The update button).
  */
+
+/** Why an action from this page failed, for the button's popover. */
+export interface ActionError {
+  title: string;
+  message: string;
+}
 
 export interface UpdatesSnapshot {
   response: UpdatesResponse | null;
@@ -20,10 +40,10 @@ export interface UpdatesSnapshot {
   requesting: boolean;
   /** A channel change from this page runs. */
   saving: boolean;
-  /** Why the last action from this page was refused. */
-  actionError: string | null;
+  /** Why the last check or installation from this page failed or was refused. */
+  actionError: ActionError | null;
   wait: InstallWait | null;
-  /** The installation this page waited for has not ended after 15 minutes. */
+  /** The installation this page follows has not ended after 15 minutes. */
   slow: boolean;
   failure: Failure | null;
   /** The version this page waited for runs: the page reloads. */
@@ -45,6 +65,8 @@ const INITIAL: UpdatesSnapshot = {
 const REFRESH_MS = 5 * 60_000;
 const FOCUS_MS = 60_000;
 const POLL_MS = 2_000;
+/** The browser's limits; the library's own calls to the updater take at most 3, 10 and 35 seconds. */
+const TIMEOUT_MS = { status: 10_000, install: 20_000, long: 45_000 } as const;
 const STORAGE_KEY = "library.update-install";
 
 let snapshot = INITIAL;
@@ -60,22 +82,27 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-type Fetched = { kind: "answer"; httpStatus: number; body: UpdatesResponse } | { kind: "down" };
-
-/** Asks the library. "down": no answer, a gateway error, or no JSON, as while it restarts. */
-async function request(path: string, body?: Record<string, unknown>): Promise<Fetched> {
+/** Asks the library. "down": no answer, a server error, or no JSON, as while it restarts. */
+async function request(path: string, timeoutMs: number, body?: Record<string, unknown>): Promise<Fetched> {
   try {
     const response = await fetch(path, {
       method: body ? "POST" : "GET",
       headers: body ? { "content-type": "application/json" } : undefined,
       body: body ? JSON.stringify(body) : undefined,
       cache: "no-store",
+      // A redirect leads to the sign-in page: the session ended.
+      redirect: "manual",
+      signal: AbortSignal.timeout(timeoutMs),
     });
-    if (response.status >= 502 && response.status <= 504) return { kind: "down" };
+    if (response.type === "opaqueredirect") return { kind: "denied" };
     const json: unknown = await response.json().catch(() => null);
-    return isUpdatesResponse(json) ? { kind: "answer", httpStatus: response.status, body: json } : { kind: "down" };
-  } catch {
-    return { kind: "down" };
+    if (response.status < 500 && isUpdatesResponse(json)) return { kind: "answer", httpStatus: response.status, body: json };
+    // Admins only: anyone else, such as someone signed out, gets 404.
+    if (response.status === 401 || response.status === 403 || response.status === 404) return { kind: "denied" };
+    return { kind: "down", reason: `The library answered with HTTP ${response.status}.` };
+  } catch (error) {
+    const timeout = error instanceof DOMException && error.name === "TimeoutError";
+    return { kind: "down", reason: timeout ? `The library did not answer within ${timeoutMs / 1_000} seconds.` : "The library did not answer." };
   }
 }
 
@@ -92,8 +119,20 @@ function loadWait(): InstallWait | null {
   try {
     const stored = sessionStorage.getItem(STORAGE_KEY);
     if (!stored) return null;
-    const wait = JSON.parse(stored) as InstallWait;
-    return typeof wait.version === "string" && typeof wait.since === "number" ? wait : null;
+    const wait = JSON.parse(stored) as Partial<InstallWait> | null;
+    if (typeof wait?.version !== "string" || typeof wait.since !== "number") return null;
+    const defaults: Omit<InstallWait, "version" | "since"> = {
+      from: null,
+      requestedAt: null,
+      before: null,
+      mine: false,
+      confirmed: true,
+      giveUpAt: null,
+      reason: null,
+      outage: false,
+      restarting: false,
+    };
+    return { ...defaults, ...wait, version: wait.version, since: wait.since };
   } catch {
     return null;
   }
@@ -101,134 +140,177 @@ function loadWait(): InstallWait | null {
 
 let lastFetch = 0;
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
+/** Components that use the status; the page asks only while there is one. */
+let users = 0;
+/** An installation an admin stopped waiting for: not followed again. */
+let dismissed: { version: string; startedAt: string | null } | null = null;
 
 function setWait(wait: InstallWait | null): void {
   saveWait(wait);
   update({ wait, slow: wait ? isSlow(wait, Date.now()) : false });
 }
 
+/** The next request while the page follows an installation, only while a component uses the status. */
 function schedulePoll(): void {
   clearTimeout(pollTimer);
-  pollTimer = setTimeout(() => void poll(), POLL_MS);
+  pollTimer = users > 0 && snapshot.wait ? setTimeout(() => void poll(), POLL_MS) : undefined;
 }
 
-/** One request while an installation runs. */
-async function poll(): Promise<void> {
-  const wait = snapshot.wait;
-  if (!wait) return;
-  const fetched = await request(UPDATES_API);
-  lastFetch = Date.now();
-  if (snapshot.wait !== wait) return;
-  if (fetched.kind === "down") {
-    setWait({ ...wait, outage: true, restarting: true });
-    schedulePoll();
-    return;
-  }
-  const current = { ...wait, restarting: false };
-  update({ response: fetched.body });
-  const outcome = installOutcome(current, fetched.body);
-  if (outcome === "done") {
-    setWait(null);
-    update({ done: current.version });
-    return;
-  }
-  if (outcome === "failed") {
-    setWait(null);
-    if (current.mine) update({ failure: { version: current.version, message: fetched.body.updater?.last?.message ?? null } });
-    return;
-  }
-  if (outcome === "gone") {
-    setWait(null);
-    return;
-  }
-  setWait(current);
+function didNotStart(wait: InstallWait): ActionError {
+  return { title: "The installation did not start", message: wait.reason ?? `The update service did not report an installation of ${wait.version}.` };
+}
+
+/** Follows an installation that an answer reports. */
+function adopt(body: UpdatesResponse): void {
+  const installing = body.updater?.installing;
+  if (!installing || snapshot.wait || snapshot.done) return;
+  if (dismissed?.version === installing.version && (dismissed.startedAt === null || dismissed.startedAt === installing.startedAt)) return;
+  setWait(startWait(installing.version, body, false, Date.now()));
   schedulePoll();
 }
 
-/** Takes a new answer; follows an installation the updater reports. */
-function receive(body: UpdatesResponse): void {
+/** Takes an answer: settles the installation the page follows, or follows one the answer reports. */
+function receive(body: UpdatesResponse, sentAt: number): void {
   update({ response: body });
-  const installing = body.updater?.installing;
-  if (installing && !snapshot.wait) {
-    setWait(startWait(installing.version, body, false, Date.now()));
-    schedulePoll();
+  const wait = snapshot.wait;
+  if (!wait) return adopt(body);
+  // Only answers to requests sent after the attempt started count.
+  if (sentAt < wait.since) return;
+  const outcome = installOutcome(wait, body);
+  switch (outcome.kind) {
+    case "done":
+      setWait(null);
+      update({ done: wait.version, actionError: null });
+      return;
+    case "failed":
+      setWait(null);
+      update({ failure: { version: wait.version, message: outcome.message, mine: wait.mine } });
+      return;
+    case "other":
+      setWait(null);
+      return adopt(body);
+    case "waiting":
+      if (gaveUp(outcome.wait, Date.now())) {
+        setWait(null);
+        update({ actionError: didNotStart(outcome.wait) });
+        return adopt(body);
+      }
+      setWait(outcome.wait);
+      schedulePoll();
   }
+}
+
+/** One request while the page follows an installation. */
+async function poll(): Promise<void> {
+  const wait = snapshot.wait;
+  if (!wait) return;
+  const sentAt = Date.now();
+  const fetched = await request(UPDATES_API, TIMEOUT_MS.status);
+  lastFetch = Date.now();
+  const current = snapshot.wait;
+  // The page stopped following it, or follows another one.
+  if (!current || current.version !== wait.version || current.since !== wait.since) return;
+  if (fetched.kind === "answer") return receive(fetched.body, sentAt);
+  if (fetched.kind === "denied") {
+    // Keep the attempt: the next page load after signing in follows it again.
+    clearTimeout(pollTimer);
+    update({ actionError: { title: "Your session ended", message: "Sign in again to follow the installation." } });
+    return;
+  }
+  const next = { ...current, outage: true, restarting: true };
+  if (gaveUp(next, Date.now())) {
+    setWait(null);
+    update({ actionError: didNotStart(next) });
+    return;
+  }
+  setWait(next);
+  schedulePoll();
 }
 
 async function refresh(): Promise<void> {
   if (snapshot.wait) return;
-  lastFetch = Date.now();
-  const fetched = await request(UPDATES_API);
-  if (fetched.kind === "answer") receive(fetched.body);
+  const sentAt = Date.now();
+  lastFetch = sentAt;
+  const fetched = await request(UPDATES_API, TIMEOUT_MS.status);
+  if (fetched.kind === "answer") receive(fetched.body, sentAt);
 }
 
 async function check(): Promise<void> {
-  if (snapshot.checking) return;
+  if (snapshot.checking || snapshot.wait) return;
   update({ checking: true, actionError: null });
-  const fetched = await request(`${UPDATES_API}/check`, {});
+  const sentAt = Date.now();
+  const fetched = await request(`${UPDATES_API}/check`, TIMEOUT_MS.long, {});
   lastFetch = Date.now();
-  if (fetched.kind === "answer") {
-    receive(fetched.body);
-    update({ actionError: fetched.httpStatus === 200 ? null : fetched.body.error });
-  } else {
-    update({ actionError: "The library did not answer. Try again." });
-  }
-  update({ checking: false });
+  if (fetched.kind === "answer") receive(fetched.body, sentAt);
+  const error = checkError(fetched);
+  update({ checking: false, actionError: error ? { title: "Could not check for updates", message: error } : null });
 }
 
-/** Asks the updater to install a version now; the page then waits for it. */
+/** Asks the updater to install a version now; the page then follows it. */
 async function install(version: string): Promise<void> {
   if (snapshot.requesting || snapshot.wait) return;
+  // Remembered before the request: the deployment may restart the library before it answers.
+  const attempt = newAttempt(version, snapshot.response, Date.now());
+  dismissed = null;
+  setWait(attempt);
   update({ requesting: true, actionError: null, failure: null });
-  const fetched = await request(`${UPDATES_API}/install`, { version });
+  const fetched = await request(`${UPDATES_API}/install`, TIMEOUT_MS.install, { version });
   lastFetch = Date.now();
-  if (fetched.kind === "down") {
-    update({ requesting: false, actionError: "The library did not answer. Try again." });
-    return;
-  }
-  update({ requesting: false, response: fetched.body });
-  if (fetched.httpStatus !== 202) {
-    update({ actionError: fetched.body.error ?? "The update service did not accept the installation." });
-    return;
-  }
-  setWait(startWait(version, fetched.body, true, Date.now()));
+  update({ requesting: false });
+  // Read again: it may have changed during the request.
+  const current = (snapshot as UpdatesSnapshot).wait;
+  if (!current || current.since !== attempt.since) return;
+  const { wait, error } = afterInstallAnswer(current, fetched, Date.now());
+  setWait(wait);
+  if (error) update({ actionError: { title: `Could not install ${version}`, message: error } });
+  if (fetched.kind === "answer") receive(fetched.body, attempt.since);
   schedulePoll();
 }
 
-/** Switches the channel; answers the reason when it was refused. */
+/** Switches the channel; answers the reason when it was not saved. */
 async function setChannel(channel: Channel): Promise<string | null> {
   update({ saving: true, actionError: null });
-  const fetched = await request(`${UPDATES_API}/channel`, { channel });
+  const sentAt = Date.now();
+  const fetched = await request(`${UPDATES_API}/channel`, TIMEOUT_MS.long, { channel });
   lastFetch = Date.now();
-  let error: string | null = null;
-  if (fetched.kind === "answer") {
-    receive(fetched.body);
-    if (fetched.httpStatus !== 200) error = fetched.body.error ?? "The update service did not switch the channel.";
-    else if (!fetched.body.reachable) error = fetched.body.error;
-  } else {
-    error = "The library did not answer. Try again.";
-  }
+  if (fetched.kind === "answer") receive(fetched.body, sentAt);
   update({ saving: false });
-  return error;
+  return channelError(fetched, channel);
+}
+
+/** Forgets the installation the page follows and goes back to asking every 5 minutes. */
+function stopWaiting(): void {
+  const wait = snapshot.wait;
+  if (!wait) return;
+  dismissed = { version: wait.version, startedAt: wait.requestedAt };
+  clearTimeout(pollTimer);
+  setWait(null);
+  update({ actionError: null });
+  void refresh();
 }
 
 function dismissFailure(): void {
   update({ failure: null, actionError: null });
 }
 
-export const updates = { refresh, check, install, setChannel, dismissFailure };
+export const updates = { refresh, check, install, setChannel, stopWaiting, dismissFailure };
 
-let users = 0;
 let stopPolling: (() => void) | undefined;
 
 /** Starts asking when the first component needs the status; stops after the last. */
 function start(): () => void {
   users += 1;
   if (users === 1) {
-    const resumed = snapshot.wait ?? loadWait();
+    let resumed = snapshot.wait;
+    if (!resumed) {
+      const stored = loadWait();
+      // A page left before its install request was answered: look for that installation.
+      resumed = stored && !stored.confirmed && stored.giveUpAt === null ? { ...stored, giveUpAt: Date.now() + RECONCILE_MS } : stored;
+    }
     if (resumed) {
-      update({ wait: resumed, slow: isSlow(resumed, Date.now()) });
-      void poll();
+      setWait(resumed);
+      // A running install request schedules the first request itself.
+      if (!snapshot.requesting) void poll();
     } else if (!snapshot.response || Date.now() - lastFetch > FOCUS_MS) {
       void refresh();
     }
@@ -247,6 +329,7 @@ function start(): () => void {
     if (users === 0) {
       stopPolling?.();
       clearTimeout(pollTimer);
+      pollTimer = undefined;
     }
   };
 }

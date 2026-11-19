@@ -245,7 +245,7 @@ The update button for admins asks the updater service
 
 | Variable | Default | Value |
 |---|---|---|
-| `UPDATER_URL` | `http://updater:8080`, the `updater` service of `compose.yaml` | The updater's API. Empty switches the update button off; unlike other variables, empty is not unset. `compose.yaml` passes the default for an empty value |
+| `UPDATER_URL` | `http://updater:8080`, the `updater` service of `compose.yaml` | The updater's API. With `compose.yaml`, an empty value falls back to the default. Only where the library reads its environment directly (outside Docker Compose), empty switches the update button off; unlike other variables, empty is not unset there |
 
 With Docker Compose, the `updater` service reads `UPDATE_COOLDOWN` (default
 `3d`), `UPDATE_WINDOW`, and `TZ`; on Coolify `UPDATE_DEPLOY_HOOK_URL` and

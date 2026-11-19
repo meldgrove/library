@@ -1,15 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { answer, release, status } from "../../../tests/fixtures/updates";
 import {
+  afterInstallAnswer,
   automaticLine,
   buttonState,
+  channelError,
+  checkError,
   formatCooldown,
+  gaveUp,
+  installAction,
   installOutcome,
   installsLine,
   isSlow,
+  newAttempt,
+  RECONCILE_MS,
   relativeTime,
   reportedFailure,
   safeLink,
+  SIGNED_OUT,
   stableDescription,
   stageLabel,
   startWait,
@@ -32,11 +40,22 @@ const wait = (extra: Partial<InstallWait> = {}): InstallWait => ({
   version: "0.2.1",
   from: "0.2.0",
   requestedAt: "2026-11-19T10:00:00.000Z",
+  before: null,
   since: NOW,
   mine: true,
+  confirmed: true,
+  giveUpAt: null,
+  reason: null,
   outage: false,
   restarting: false,
   ...extra,
+});
+
+const installing = (stage: "requested" | "pulling" | "starting" = "starting") => ({
+  version: "0.2.1",
+  startedAt: "2026-11-19T10:00:00.000Z",
+  manual: true,
+  stage,
 });
 
 describe("buttonState", () => {
@@ -78,54 +97,159 @@ describe("reportedFailure", () => {
 });
 
 describe("installOutcome", () => {
-  const last = (result: "installed" | "failed" | "rolled-back" | "accepted", extra: object = {}) =>
-    status({ last: { version: "0.2.1", result, message: null, finishedAt: "2026-11-19T10:00:08.000Z", ...extra } });
+  const last = (result: "installed" | "failed" | "rolled-back" | "accepted", extra: object = {}) => ({
+    version: "0.2.1",
+    result,
+    message: null,
+    finishedAt: "2026-11-19T10:00:08.000Z",
+    ...extra,
+  });
+  const withLast = (result: "installed" | "failed" | "rolled-back" | "accepted", extra: object = {}) => status({ last: last(result, extra) });
 
-  it("is done when the library runs the version", () => {
-    expect(installOutcome(wait(), answer(status(), { app: { version: "0.2.1" } }))).toBe("done");
+  it("keeps waiting while the updater still installs the version, even when the library already answers with it", () => {
+    const outcome = installOutcome(wait(), answer(status({ installing: installing() }), { app: { version: "0.2.1" } }));
+    expect(outcome).toEqual({ kind: "waiting", wait: wait() });
   });
 
-  it("is done when the updater installed it and the library changed or has no version", () => {
-    expect(installOutcome(wait({ outage: true }), answer(last("installed")))).toBe("done");
-    expect(installOutcome(wait({ from: null }), answer(last("installed"), { app: { version: null } }))).toBe("done");
-    expect(installOutcome(wait(), answer(last("installed")))).toBe("waiting");
+  it("is done when the server installed it", () => {
+    expect(installOutcome(wait(), answer(withLast("installed")))).toEqual({ kind: "done" });
+    expect(installOutcome(wait({ from: null }), answer(withLast("installed"), { app: { version: null } }))).toEqual({ kind: "done" });
   });
 
-  it("waits for a platform's deployment until the library changed", () => {
-    expect(installOutcome(wait(), answer(last("accepted")))).toBe("waiting");
-    expect(installOutcome(wait({ outage: true }), answer(last("accepted")))).toBe("done");
-    expect(installOutcome(wait(), answer(last("accepted"), { app: { version: "0.2.1-preview.1" } }))).toBe("done");
-    expect(installOutcome(wait({ from: null }), answer(last("accepted"), { app: { version: null } }))).toBe("waiting");
+  it("fails with the updater's message, also when the version is no longer offered as failed", () => {
+    const message = "container worker is unhealthy. 0.2.0 runs again.";
+    // The new web process answered with the version for a moment; the worker then failed its health check.
+    expect(installOutcome(wait({ outage: true }), answer(withLast("rolled-back", { message }), { app: { version: "0.2.1" } }))).toEqual({ kind: "failed", message });
+    expect(installOutcome(wait(), answer(withLast("failed", { message: "pull access denied" })))).toEqual({ kind: "failed", message: "pull access denied" });
   });
 
-  it("fails when the updater says so", () => {
-    expect(installOutcome(wait(), answer(last("failed")))).toBe("failed");
-    expect(installOutcome(wait({ outage: true }), answer(last("rolled-back")))).toBe("failed");
+  it("ignores a result from before the attempt", () => {
+    const stale = { finishedAt: "2026-11-19T09:00:00.000Z" };
+    expect(installOutcome(wait(), answer(withLast("rolled-back", stale)))).toEqual({ kind: "waiting", wait: wait() });
+    expect(installOutcome(wait(), answer(withLast("installed", stale)))).toEqual({ kind: "waiting", wait: wait() });
+    // Without the updater's clock, the browser's; and the result known when the attempt started never counts.
+    expect(installOutcome(wait({ requestedAt: null }), answer(withLast("failed", stale)))).toMatchObject({ kind: "waiting" });
+    expect(installOutcome(wait({ requestedAt: null, since: 0, before: "2026-11-19T10:00:08.000Z" }), answer(withLast("failed")))).toMatchObject({
+      kind: "waiting",
+    });
   });
 
-  it("ignores results of other versions and of earlier attempts while the updater installs", () => {
-    const installing = { version: "0.2.1", startedAt: "2026-11-19T10:00:00.000Z", manual: true, stage: "starting" as const };
-    expect(installOutcome(wait(), answer(status({ installing, last: last("failed", { version: "0.2.0" }).last })))).toBe("waiting");
-    expect(installOutcome(wait(), answer(status({ installing, last: last("rolled-back", { finishedAt: "2026-11-19T09:00:00.000Z" }).last })))).toBe("waiting");
-    expect(installOutcome(wait(), answer(status({ installing })))).toBe("waiting");
+  it("ignores results of other versions while the updater installs", () => {
+    expect(installOutcome(wait(), answer(status({ installing: installing(), last: last("failed", { version: "0.2.0" }) })))).toMatchObject({ kind: "waiting" });
   });
 
-  it("keeps waiting while the updater cannot be asked, and stops when the installation is gone", () => {
-    expect(installOutcome(wait(), answer(null))).toBe("waiting");
-    expect(installOutcome(wait(), answer(status()))).toBe("gone");
-    expect(installOutcome(wait(), answer(last("rolled-back", { finishedAt: "2026-11-19T09:00:00.000Z" })))).toBe("gone");
+  it("waits for a platform's deployment until the library runs the version", () => {
+    expect(installOutcome(wait(), answer(withLast("accepted")))).toMatchObject({ kind: "waiting" });
+    expect(installOutcome(wait({ outage: true }), answer(withLast("accepted")))).toMatchObject({ kind: "waiting" });
+    expect(installOutcome(wait(), answer(withLast("accepted"), { app: { version: "0.2.1" } }))).toEqual({ kind: "done" });
+    // Without a version (development): once the library answered after an outage.
+    expect(installOutcome(wait({ from: null }), answer(withLast("accepted"), { app: { version: null } }))).toMatchObject({ kind: "waiting" });
+    expect(installOutcome(wait({ from: null, outage: true }), answer(withLast("accepted"), { app: { version: null } }))).toEqual({ kind: "done" });
   });
 
-  it("starts waiting from the updater's clock", () => {
-    const installing = status({ installing: { version: "0.2.1", startedAt: "2026-11-19T09:59:59.000Z", manual: true, stage: "requested" } });
-    expect(startWait("0.2.1", answer(installing), true, NOW)).toEqual(wait({ requestedAt: "2026-11-19T09:59:59.000Z" }));
-    expect(startWait("0.2.1", answer(last("accepted")), true, NOW).requestedAt).toBe("2026-11-19T10:00:08.000Z");
-    expect(startWait("0.2.1", answer(status()), false, NOW)).toMatchObject({ requestedAt: null, mine: false });
+  it("is done when nothing reports the installation any more and the library runs the version", () => {
+    expect(installOutcome(wait(), answer(status(), { app: { version: "0.2.1" } }))).toEqual({ kind: "done" });
+    expect(installOutcome(wait(), answer(status()))).toEqual({ kind: "waiting", wait: wait() });
+  });
+
+  it("keeps waiting while the updater cannot be asked", () => {
+    expect(installOutcome(wait(), answer(null))).toEqual({ kind: "waiting", wait: wait({ restarting: true }) });
+    expect(installOutcome(wait(), answer(null, { app: { version: "0.2.1" } }))).toMatchObject({ kind: "waiting" });
+  });
+
+  it("confirms an attempt once a status reports it, with the updater's clock", () => {
+    const attempt = wait({ requestedAt: null, confirmed: false, giveUpAt: NOW + RECONCILE_MS });
+    expect(installOutcome(attempt, answer(status({ installing: installing("pulling") })))).toEqual({
+      kind: "waiting",
+      wait: { ...attempt, confirmed: true, requestedAt: "2026-11-19T10:00:00.000Z" },
+    });
+  });
+
+  it("follows another version the updater installs instead", () => {
+    expect(installOutcome(wait(), answer(status({ installing: { ...installing(), version: "0.2.2" } })))).toEqual({ kind: "other" });
   });
 
   it("says after 15 minutes that it takes longer than expected", () => {
     expect(isSlow(wait(), NOW + 14 * 60_000)).toBe(false);
     expect(isSlow(wait(), NOW + 16 * 60_000)).toBe(true);
+  });
+});
+
+describe("install requests", () => {
+  const attempt = newAttempt("0.2.1", answer(failedStatus), NOW);
+
+  it("remembers the attempt before the request, with the result known then", () => {
+    expect(attempt).toEqual(wait({ requestedAt: null, before: "2026-11-19T09:00:00.000Z", confirmed: false }));
+  });
+
+  it("follows an accepted installation with the updater's clock", () => {
+    const accepted = afterInstallAnswer(attempt, { kind: "answer", httpStatus: 202, body: answer(status({ installing: installing("requested") })) }, NOW);
+    expect(accepted).toEqual({ wait: { ...attempt, confirmed: true, requestedAt: "2026-11-19T10:00:00.000Z" }, error: null });
+    const platform = afterInstallAnswer(attempt, { kind: "answer", httpStatus: 202, body: answer(status({ mode: "platform", last: { version: "0.2.1", result: "accepted", message: null, finishedAt: "2026-11-19T10:00:02.000Z" } })) }, NOW);
+    expect(platform.wait).toMatchObject({ confirmed: true, requestedAt: "2026-11-19T10:00:02.000Z" });
+  });
+
+  it("keeps the attempt after an unclear answer and looks for it for a minute", () => {
+    const lost = afterInstallAnswer(attempt, { kind: "down", reason: "The library did not answer." }, NOW);
+    expect(lost).toEqual({ wait: { ...attempt, giveUpAt: NOW + RECONCILE_MS, reason: "The library did not answer." }, error: null });
+    const timeout = "The update service at http://updater:8080 did not answer within 10 seconds.";
+    const noUpdater = afterInstallAnswer(attempt, { kind: "answer", httpStatus: 200, body: answer(null, { error: timeout }) }, NOW);
+    expect(noUpdater.wait).toMatchObject({ confirmed: false, giveUpAt: NOW + RECONCILE_MS, reason: timeout });
+    expect(gaveUp(lost.wait!, NOW + RECONCILE_MS - 1)).toBe(false);
+    expect(gaveUp(lost.wait!, NOW + RECONCILE_MS)).toBe(true);
+    expect(gaveUp({ ...lost.wait!, confirmed: true }, NOW + RECONCILE_MS)).toBe(false);
+    // While the request runs, there is no deadline yet.
+    expect(gaveUp(attempt, NOW + RECONCILE_MS)).toBe(false);
+  });
+
+  it("forgets the attempt when the updater refuses it", () => {
+    const refused = afterInstallAnswer(attempt, { kind: "answer", httpStatus: 409, body: answer(status(), { error: "0.2.1 is not offered; check again." }) }, NOW);
+    expect(refused).toEqual({ wait: null, error: "0.2.1 is not offered; check again." });
+    expect(afterInstallAnswer(attempt, { kind: "denied" }, NOW)).toEqual({ wait: null, error: SIGNED_OUT });
+  });
+
+  it("follows the installation a refusal reports instead", () => {
+    const running = { ...installing("pulling"), version: "0.2.2", manual: false };
+    const refused = afterInstallAnswer(attempt, { kind: "answer", httpStatus: 409, body: answer(status({ installing: running }), { error: "0.2.2 is being installed." }) }, NOW);
+    expect(refused).toEqual({
+      wait: { ...attempt, version: "0.2.2", requestedAt: "2026-11-19T10:00:00.000Z", before: null, mine: false, confirmed: true },
+      error: null,
+    });
+    // Another admin was faster with the same version: its failure still opens by itself here.
+    const same = afterInstallAnswer(attempt, { kind: "answer", httpStatus: 409, body: answer(status({ installing: installing() }), { error: "0.2.1 is being installed." }) }, NOW);
+    expect(same.wait).toMatchObject({ version: "0.2.1", mine: true, confirmed: true });
+  });
+
+  it("starts following a reported installation from the updater's clock", () => {
+    const reported = status({ installing: { ...installing("requested"), startedAt: "2026-11-19T09:59:59.000Z" } });
+    expect(startWait("0.2.1", answer(reported), false, NOW)).toEqual(wait({ requestedAt: "2026-11-19T09:59:59.000Z", mine: false }));
+  });
+});
+
+describe("installAction", () => {
+  it("offers Install anyway for a release with upgrade steps only where the channel is not locked", () => {
+    expect(installAction(status({ attention: release("0.3.0") }), true)).toBe("install");
+    const locked = status({ mode: "platform", channelLocked: "The platform's image tag 0.2 decides which updates install.", attention: release("0.3.0") });
+    expect(installAction(locked, true)).toBe("locked");
+    expect(installAction(locked, false)).toBe("install");
+    expect(installAction(status({ mode: "off", automatic: false }), true)).toBe("off");
+    expect(installAction(null, false)).toBe("off");
+  });
+});
+
+describe("check and channel answers", () => {
+  it("shows why a check failed instead of Up to date", () => {
+    expect(checkError({ kind: "answer", httpStatus: 200, body: answer(status()) })).toBeNull();
+    expect(checkError({ kind: "answer", httpStatus: 200, body: answer(status({ error: "ghcr.io: 503 Service Unavailable" })) })).toBe("ghcr.io: 503 Service Unavailable");
+    expect(checkError({ kind: "answer", httpStatus: 409, body: answer(status(), { error: "A check runs already." }) })).toBe("A check runs already.");
+    expect(checkError({ kind: "down", reason: "The library did not answer." })).toBe("The library did not answer.");
+  });
+
+  it("counts a channel as saved only when the updater reports it", () => {
+    expect(channelError({ kind: "answer", httpStatus: 200, body: answer(status({ channel: "preview" })) }, "preview")).toBeNull();
+    expect(channelError({ kind: "answer", httpStatus: 200, body: answer(status()) }, "preview")).toBe("The update service still uses the channel Stable.");
+    expect(channelError({ kind: "answer", httpStatus: 200, body: answer(null, { error: "not reachable" }) }, "preview")).toBe("not reachable");
+    expect(channelError({ kind: "answer", httpStatus: 409, body: answer(status(), { error: "locked" }) }, "preview")).toBe("locked");
   });
 });
 

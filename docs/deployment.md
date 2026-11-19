@@ -277,7 +277,9 @@ channel in the library: a series such as `0.2` (Stable), `latest` (every
 release, including those with upgrade steps; watch the releases on GitHub
 and take their steps right away), or `preview` (Preview). The admin page
 says so instead of offering the channel. When the tag points to a new image,
-the updater calls the deploy link; **Install now** calls it at once.
+the updater calls the deploy link; **Install now** calls it at once. A
+release with upgrade steps that the tag does not reach shows in the update
+button without an install action: take its steps, then change the tag.
 
 ### On Debian
 
@@ -308,17 +310,20 @@ and `sh updater-setup.sh remove` switches it off.
 A server set up before the update button follows the tag in
 `LIBRARY_VERSION` (such as `latest`) and keeps installing releases. Its
 update button says "No update service", and admins cannot choose a channel.
-To move it to the setup above, as root in `/srv/library`:
+To move it to the setup above, as root in `/srv/library`, set
+`LIBRARY_VERSION` in `.env` to the release that brings the update button (or
+a newer one), then:
 
 ```sh
 git pull
-docker compose up -d
+docker compose up -d --pull always
 docker compose run --rm -T --pull always updater host-setup > updater-setup.sh
 sh updater-setup.sh
 ```
 
 `git pull` gets the newest release's `compose.yaml` (branch `stable`), with
-updater 0.2; `docker compose up -d` starts it. Until the host setup runs
-again, the updater follows the tag as before, and the admin page explains
-that the channel needs the host setup again. From the next installation on,
-`LIBRARY_VERSION` holds the exact version instead of the tag.
+updater 0.2. `docker compose up -d --pull always` downloads the images again
+and starts them, so that the library itself, not only the updater, runs the
+new version: without `--pull always`, Compose keeps an image the server
+already has under that tag. Until the host setup runs again, the admin page
+explains that the channel needs it.

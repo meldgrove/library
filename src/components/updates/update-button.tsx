@@ -13,6 +13,7 @@ import type { DisplayPreferences } from "@/lib/preferences";
 import {
   buttonState,
   canInstall,
+  installAction,
   installingVersion,
   installsLine,
   relativeTime,
@@ -26,7 +27,7 @@ import {
 } from "@/lib/updates/state";
 import { CHANNEL_LABELS, type Update, type UpdatesResponse } from "@/lib/updates/types";
 import { cn } from "@/lib/utils";
-import { updates, useUpdates, type UpdatesSnapshot } from "./use-updates";
+import { updates, useUpdates, type ActionError as ActionErrorValue, type UpdatesSnapshot } from "./use-updates";
 
 const APP_NAME = "Meldgrove Library";
 const SERVER_LOG = "journalctl -u meldgrove-updater-library";
@@ -47,9 +48,10 @@ function useNow(): number {
   return now;
 }
 
-function tooltipFor(state: ButtonState, snapshot: UpdatesSnapshot, failure: Failure | null): string {
+function tooltipFor(state: ButtonState, snapshot: UpdatesSnapshot, failure: Failure | null, error: ActionErrorValue | null): string {
   const { response, wait } = snapshot;
   const running = runningVersion(response);
+  if (error) return error.title;
   switch (state) {
     case "loading":
       return "Updates";
@@ -113,14 +115,16 @@ export function UpdateButton({ preferences }: { preferences: DisplayPreferences 
     return () => clearTimeout(timer);
   }, [done]);
 
-  const hasPanel = state === "available" || state === "attention" || state === "failed" || state === "installing";
-  // An installation from this page that failed opens its message by itself.
-  const popoverOpen = hasPanel && (open || snapshot.failure !== null);
-  const label = tooltipFor(state, snapshot, failure);
+  // A failed check or a refused installation where no other panel shows it, such as "Up to date".
+  const error = (state === "up-to-date" || state === "off") && snapshot.actionError ? snapshot.actionError : null;
+  const hasPanel = state === "available" || state === "attention" || state === "failed" || state === "installing" || error !== null;
+  // An installation this page asked for that failed, and an error from this page, open by themselves.
+  const popoverOpen = hasPanel && (open || snapshot.failure?.mine === true || error !== null);
+  const label = tooltipFor(state, snapshot, failure, error);
 
   const onOpenChange = (next: boolean) => {
     setOpen(next);
-    if (!next && snapshot.failure) updates.dismissFailure();
+    if (!next && (snapshot.failure || snapshot.actionError)) updates.dismissFailure();
   };
 
   const onClick = (event: React.MouseEvent) => {
@@ -160,7 +164,7 @@ export function UpdateButton({ preferences }: { preferences: DisplayPreferences 
                 data-update-state={state}
                 onClick={onClick}
               >
-                <StateIcon state={state} />
+                {error ? <TriangleAlert aria-hidden="true" className="text-destructive" /> : <StateIcon state={state} />}
                 {state === "available" || state === "attention" ? (
                   <span
                     aria-hidden="true"
@@ -187,7 +191,7 @@ export function UpdateButton({ preferences }: { preferences: DisplayPreferences 
             {state === "attention" && response?.updater?.attention ? (
               <AttentionPanel
                 update={response.updater.attention}
-                installable={canInstall(response.updater)}
+                action={installAction(response.updater, true)}
                 onInstall={askToInstall}
                 snapshot={snapshot}
               />
@@ -196,6 +200,7 @@ export function UpdateButton({ preferences }: { preferences: DisplayPreferences 
               <FailedPanel failure={failure} response={response} onRetry={askToInstall} snapshot={snapshot} />
             ) : null}
             {state === "installing" ? <InstallingPanel snapshot={snapshot} /> : null}
+            {error ? <ErrorPanel error={error} /> : null}
           </div>
           <PopoverFooter snapshot={snapshot} now={now} />
         </PopoverContent>
@@ -227,9 +232,21 @@ function ReleaseNotesLink({ url }: { url: string | null }) {
 function ActionError({ snapshot }: { snapshot: UpdatesSnapshot }) {
   if (!snapshot.actionError) return null;
   return (
-    <p role="alert" className="text-destructive">
-      {snapshot.actionError}
+    <p role="alert" className="break-words text-destructive">
+      <span className="font-medium">{snapshot.actionError.title}.</span> {snapshot.actionError.message}
     </p>
+  );
+}
+
+/** A failed check or a refused installation, from the "Up to date" and "off" states. */
+function ErrorPanel({ error }: { error: ActionErrorValue }) {
+  return (
+    <PopoverHeader>
+      <PopoverTitle>{error.title}</PopoverTitle>
+      <p role="alert" className="break-words text-destructive">
+        {error.message}
+      </p>
+    </PopoverHeader>
   );
 }
 
@@ -292,11 +309,11 @@ function AvailablePanel(props: {
 
 function AttentionPanel(props: {
   update: Update;
-  installable: boolean;
+  action: "install" | "off" | "locked";
   onInstall: (update: Update, attention: boolean) => void;
   snapshot: UpdatesSnapshot;
 }) {
-  const { update, installable, onInstall, snapshot } = props;
+  const { update, action, onInstall, snapshot } = props;
   return (
     <>
       <PopoverHeader>
@@ -305,10 +322,14 @@ function AttentionPanel(props: {
       </PopoverHeader>
       <ReleaseNotesLink url={update.url} />
       <ActionError snapshot={snapshot} />
-      {installable ? (
+      {action === "install" ? (
         <Button size="sm" variant="outline" className="w-fit" disabled={snapshot.requesting} onClick={() => onInstall(update, true)}>
           Install anyway…
         </Button>
+      ) : action === "locked" ? (
+        <p className="text-muted-foreground">
+          The image tag set where {APP_NAME} is deployed does not reach {update.version}. Take the upgrade steps and change the tag there.
+        </p>
       ) : (
         <OffNote />
       )}
@@ -325,9 +346,10 @@ function FailedPanel(props: {
   const { failure, response, onRetry, snapshot } = props;
   const running = runningVersion(response);
   const updater = response?.updater;
-  const attention = updater?.attention?.version === failure.version ? updater.attention : null;
-  const offered = updater?.available?.version === failure.version ? updater.available : attention;
-  const retry = canInstall(updater) ? offered : null;
+  // Try again only while the version is still offered, and a release with upgrade steps only where the button may install it.
+  const available = updater?.available?.version === failure.version && installAction(updater, false) === "install" ? updater.available : null;
+  const attention = updater?.attention?.version === failure.version && installAction(updater, true) === "install" ? updater.attention : null;
+  const retry = available ?? attention;
   return (
     <>
       <PopoverHeader>
@@ -364,10 +386,16 @@ function InstallingPanel({ snapshot }: { snapshot: UpdatesSnapshot }) {
         </p>
       </PopoverHeader>
       <p>{APP_NAME} restarts. This page reloads when it is back.</p>
-      {slow ? (
-        <p role="alert" className="text-destructive">
-          This takes longer than expected. Check the server (<code className="font-mono text-xs">{SERVER_LOG}</code>).
-        </p>
+      <ActionError snapshot={snapshot} />
+      {slow && wait ? (
+        <>
+          <p role="alert" className="text-destructive">
+            This takes longer than expected. Check the server (<code className="font-mono text-xs">{SERVER_LOG}</code>).
+          </p>
+          <Button size="sm" variant="outline" className="w-fit" onClick={() => updates.stopWaiting()}>
+            Stop waiting
+          </Button>
+        </>
       ) : null}
     </>
   );
