@@ -156,14 +156,14 @@ describe("topic areas and document types", () => {
 
   it("adds the default topic areas with descriptions, only while there are none", async () => {
     expect(await ensureDefaultTopicAreas(db)).toBe(DEFAULT_TOPIC_AREAS.length);
-    const area = (await db.select().from(topicArea)).find((row) => row.name === "Paludiculture")!;
-    await updateTopicArea(db, seed.actors.amy, area.id, { name: "Peatland farming", description: area.description });
+    const area = (await db.select().from(topicArea)).find((row) => row.name === "Tourism")!;
+    await updateTopicArea(db, seed.actors.amy, area.id, { name: "Travel & tourism", description: area.description });
     await setTopicAreaActive(db, seed.actors.amy, area.id, false);
     // Changed and deactivated entries stay as the maintainers left them.
     expect(await ensureDefaultTopicAreas(db)).toBe(0);
     const lists = await draftLists(db);
     expect(lists.topicAreas).toHaveLength(DEFAULT_TOPIC_AREAS.length - 1);
-    expect(lists.topicAreas.map((entry) => entry.name)).not.toContain("Paludiculture");
+    expect(lists.topicAreas.map((entry) => entry.name)).not.toContain("Travel & tourism");
     expect(lists.topicAreas.every((entry) => entry.description.length > 0)).toBe(true);
   });
 

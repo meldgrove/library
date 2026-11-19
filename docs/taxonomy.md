@@ -32,15 +32,20 @@ its own.
 - **Document types:** Study, Report, Article, Policy paper, Funder guideline,
   Book, Presentation, Website, Podcast, Transcript, Social media post, and
   Other.
-- **Topic areas:** Agriculture, Agroforestry, Aging, Arts & culture, Building
-  & housing, Climate action & nature, Community & social cohesion, Community
-  catering, Cross-cutting, Democracy, Economy & industry, Education, Energy &
-  utilities, Europe, Family & children, Finance, Food & nutrition, Health,
-  Justice & law, Media & communication, Migration & refugees, Mobility &
-  logistics, Nursing & care, Other, Paludiculture, Politics, Public
+- **Topic areas:** Agriculture & land use, Aging, Arts & culture, Building &
+  housing, Circular economy, Civil society & philanthropy, Climate action &
+  nature, Community & social cohesion, Cross-cutting, Economy & industry,
+  Education, Energy & utilities, Equality & human rights, Europe, Family &
+  children, Finance, Food & nutrition, Health, International cooperation &
+  development, Justice & law, Media & communication, Migration & refugees,
+  Mobility & logistics, Nursing & care, Other, Politics & democracy, Public
   administration & civil service, Public safety, Religion & belief, Research,
   Social affairs & inclusion, Sports, Technology & digital transformation,
   Tourism, Work & skilled labor, and Youth.
+
+Topic areas are broad on purpose: one per note, for browsing and filtering.
+Narrower subjects, such as paludiculture or community catering, work better
+as tags.
 
 The descriptions are in `src/lib/library/taxonomy.ts`.
 
