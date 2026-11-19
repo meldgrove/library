@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { auditEvent, documentType, note, noteTag, source, tag, tagCluster, tagProposal } from "@/lib/db/schema";
+import { auditEvent, documentType, note, noteTag, source, tag, tagCluster, tagProposal, topicArea } from "@/lib/db/schema";
 import { connectTestDatabase } from "../../../tests/integration/db";
 import { seedDirectory } from "../../../tests/integration/seed";
 import { viewerOf } from "./access";
@@ -10,9 +10,11 @@ import {
   createCluster,
   createTopicArea,
   DEFAULT_DOCUMENT_TYPES,
+  DEFAULT_TOPIC_AREAS,
   deleteCluster,
   draftLists,
   ensureDefaultDocumentTypes,
+  ensureDefaultTopicAreas,
   getTaxonomy,
   importTaxonomy,
   rejectTagProposal,
@@ -150,6 +152,19 @@ describe("topic areas and document types", () => {
     const types = await db.select().from(documentType);
     expect(types.map((type) => type.name)).toEqual(expect.arrayContaining(["Podcast", "Transcript", "Social media post"]));
     expect(types.every((type) => type.description.length > 0)).toBe(true);
+  });
+
+  it("adds the default topic areas with descriptions, only while there are none", async () => {
+    expect(await ensureDefaultTopicAreas(db)).toBe(DEFAULT_TOPIC_AREAS.length);
+    const area = (await db.select().from(topicArea)).find((row) => row.name === "Paludiculture")!;
+    await updateTopicArea(db, seed.actors.amy, area.id, { name: "Peatland farming", description: area.description });
+    await setTopicAreaActive(db, seed.actors.amy, area.id, false);
+    // Changed and deactivated entries stay as the maintainers left them.
+    expect(await ensureDefaultTopicAreas(db)).toBe(0);
+    const lists = await draftLists(db);
+    expect(lists.topicAreas).toHaveLength(DEFAULT_TOPIC_AREAS.length - 1);
+    expect(lists.topicAreas.map((entry) => entry.name)).not.toContain("Paludiculture");
+    expect(lists.topicAreas.every((entry) => entry.description.length > 0)).toBe(true);
   });
 
   it("imports topic areas and document types, with or without a description, and adds only what is missing", async () => {

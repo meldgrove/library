@@ -43,7 +43,7 @@ import { createDraftModel } from "@/lib/library/draft";
 import { startProcessor } from "@/lib/library/pipeline";
 import { cleanUpOriginals } from "@/lib/library/originals";
 import { recordReviewReminders } from "@/lib/library/review";
-import { ensureDefaultDocumentTypes } from "@/lib/library/taxonomy";
+import { ensureDefaultDocumentTypes, ensureDefaultTopicAreas } from "@/lib/library/taxonomy";
 import { createWebhookClient } from "@/lib/webhook/client";
 import { requestAllPublished, syncDue } from "@/lib/webhook/sync";
 import { logger } from "@/lib/logger";
@@ -191,9 +191,11 @@ async function main() {
     channels.webhook = "off";
   }
 
-  // A fresh library has document types to draft with from the start.
-  const added = await ensureDefaultDocumentTypes(getDb());
-  if (added > 0) logger.info({ added }, "default document types added");
+  // A fresh library has document types and topic areas to draft with from the start.
+  const addedTypes = await ensureDefaultDocumentTypes(getDb());
+  if (addedTypes > 0) logger.info({ added: addedTypes }, "default document types added");
+  const addedAreas = await ensureDefaultTopicAreas(getDb());
+  if (addedAreas > 0) logger.info({ added: addedAreas }, "default topic areas added");
 
   // Uploads: text, screen, duplicate check, AI draft.
   const aiConfig = getAiConfig();

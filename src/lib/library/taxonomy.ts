@@ -30,6 +30,46 @@ export const DEFAULT_DOCUMENT_TYPES = [
   { name: "Other", description: "A source that fits none of the other types" },
 ] as const;
 
+/** Added when the library has no topic areas yet; maintainers change them from then on. */
+export const DEFAULT_TOPIC_AREAS = [
+  { name: "Agriculture", description: "Farming, livestock, rural areas, and agricultural policy" },
+  { name: "Agroforestry", description: "Trees and shrubs grown together with crops or livestock on the same land" },
+  { name: "Aging", description: "Older people, retirement, and an aging society" },
+  { name: "Arts & culture", description: "Art, culture, cultural institutions, and heritage" },
+  { name: "Building & housing", description: "Construction, housing, rents, and urban and rural development" },
+  { name: "Climate action & nature", description: "Climate protection and adaptation, biodiversity, and nature conservation" },
+  { name: "Community & social cohesion", description: "Neighborhoods, volunteering, social cohesion, and living together" },
+  { name: "Community catering", description: "Meals in daycare centers, schools, hospitals, care homes, and canteens" },
+  { name: "Cross-cutting", description: "A source that spans several topic areas equally" },
+  { name: "Democracy", description: "Participation, elections, civil society, and defending democracy" },
+  { name: "Economy & industry", description: "Businesses, industry, trade, and economic policy" },
+  { name: "Education", description: "Early childhood, school, university, and adult education" },
+  { name: "Energy & utilities", description: "Energy supply and the energy transition, water, waste, and other public utilities" },
+  { name: "Europe", description: "The European Union, its policies and funding, and European cooperation" },
+  { name: "Family & children", description: "Families, parenting, childcare, and children's rights" },
+  { name: "Finance", description: "Public budgets, taxes, and the financial system" },
+  { name: "Food & nutrition", description: "Diets, food systems, food security, and food policy" },
+  { name: "Health", description: "Health care, prevention, public health, and medicine" },
+  { name: "Justice & law", description: "Courts, legislation, legal rights, and the justice system" },
+  { name: "Media & communication", description: "Journalism, public communication, social media, and disinformation" },
+  { name: "Migration & refugees", description: "Migration, asylum, refugees, and integration" },
+  { name: "Mobility & logistics", description: "Transportation, public transit, traffic, and freight" },
+  { name: "Nursing & care", description: "Long-term care, nursing, care work, and family caregivers" },
+  { name: "Other", description: "A source that fits none of the other topic areas" },
+  { name: "Paludiculture", description: "Farming and forestry on rewetted peatlands" },
+  { name: "Politics", description: "Government, parties, policy-making, and political institutions" },
+  { name: "Public administration & civil service", description: "Public authorities, the civil service, and administrative reform" },
+  { name: "Public safety", description: "Police, crime prevention, extremism, and civil protection" },
+  { name: "Religion & belief", description: "Religions, religious communities, and worldviews" },
+  { name: "Research", description: "Science, research institutions, research funding, and methods" },
+  { name: "Social affairs & inclusion", description: "Poverty, social security, disability, and equal participation" },
+  { name: "Sports", description: "Sports, physical activity, and sports clubs" },
+  { name: "Technology & digital transformation", description: "Digital technology, AI, data, and the digital transformation" },
+  { name: "Tourism", description: "Travel, tourism, and hospitality" },
+  { name: "Work & skilled labor", description: "Employment, working conditions, vocational training, and the shortage of skilled workers" },
+  { name: "Youth", description: "Young people, youth work, and youth participation" },
+] as const;
+
 const NAME_MAX = 80;
 const DESCRIPTION_MAX = 300;
 export const nameSchema = z.string().trim().min(1, "Enter a name.").max(NAME_MAX, `At most ${NAME_MAX} characters.`);
@@ -400,5 +440,17 @@ export async function ensureDefaultDocumentTypes(db: Database): Promise<number> 
     .values(DEFAULT_DOCUMENT_TYPES.map(({ name, description }) => ({ name, description })))
     .onConflictDoNothing()
     .returning({ id: documentType.id });
+  return inserted.length;
+}
+
+/** Adds the default topic areas when there are none yet. Entries are deactivated, never deleted, so this runs once. */
+export async function ensureDefaultTopicAreas(db: Database): Promise<number> {
+  const [any] = await db.select({ id: topicArea.id }).from(topicArea).limit(1);
+  if (any) return 0;
+  const inserted = await db
+    .insert(topicArea)
+    .values(DEFAULT_TOPIC_AREAS.map(({ name, description }) => ({ name, description })))
+    .onConflictDoNothing()
+    .returning({ id: topicArea.id });
   return inserted.length;
 }

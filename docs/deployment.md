@@ -178,7 +178,8 @@ run the commands as root (`sudo -i`).
    `INITIAL_ADMIN_EMAILS`; with `DIRECTORY=keycloak`, a member of
    `KEYCLOAK_ADMIN_GROUP` ([identity and access](identity-and-access.md)).
 2. Fill the taxonomy under **Maintenance → Taxonomy**, or import it
-   ([taxonomy](taxonomy.md)). The AI model picks tags only from it.
+   ([taxonomy](taxonomy.md)). The AI model picks tags only from it. Topic
+   areas and document types start with defaults; adjust them there.
 3. Optionally, run the [replay test](taxonomy.md#replay-test) against the
    configured AI model before people start uploading.
 

@@ -8,7 +8,7 @@ import { noteFormSchema } from "@/lib/library/note-input";
 import { processNext } from "@/lib/library/pipeline";
 import { checkNote, saveNote } from "@/lib/library/review";
 import { submitFile } from "@/lib/library/submissions";
-import { ensureDefaultDocumentTypes, importTaxonomy } from "@/lib/library/taxonomy";
+import { ensureDefaultDocumentTypes, ensureDefaultTopicAreas, importTaxonomy } from "@/lib/library/taxonomy";
 
 /*
  * Fills the development database with example notes, to try the interface:
@@ -23,12 +23,7 @@ const TAXONOMY = {
     { name: "How we work", tags: ["Funding", "Impact", "Digital", "Governance"] },
   ],
   documentTypes: [],
-  topicAreas: [
-    { name: "Civil society", description: "How nonprofits and volunteers organize, fund, and run their work" },
-    { name: "Climate and environment", description: "Climate change, adaptation, and nature" },
-    { name: "Democracy and participation", description: "Elections, local decisions, and how people take part" },
-    { name: "Health and care", description: "Health, care work, and health services" },
-  ],
+  topicAreas: [],
 };
 
 interface DemoSource {
@@ -58,7 +53,7 @@ const SOURCES: DemoSource[] = [
     location: "p. 7",
     citation: "Example Institute for Civil Society (2026). Keeping Volunteers. Berlin.",
     type: "Study",
-    topicArea: "Civil society",
+    topicArea: "Community & social cohesion",
     tags: ["Volunteering", "Governance"],
     visibility: "all",
     checked: true,
@@ -72,7 +67,7 @@ const SOURCES: DemoSource[] = [
     location: "p. 3",
     citation: "Northfield Foundation (2026). Digital Skills in Community Organizations. Annual report.",
     type: "Report",
-    topicArea: "Civil society",
+    topicArea: "Technology & digital transformation",
     tags: ["Digital", "Funding"],
     visibility: "all",
   },
@@ -85,7 +80,7 @@ const SOURCES: DemoSource[] = [
     location: "p. 12",
     citation: "Example Institute (2026). Heat Protection in Small Towns. Berlin.",
     type: "Study",
-    topicArea: "Climate and environment",
+    topicArea: "Climate action & nature",
     tags: ["Climate", "Health"],
     visibility: "all",
     checked: true,
@@ -99,7 +94,7 @@ const SOURCES: DemoSource[] = [
     location: "section 2",
     citation: "Northfield Foundation (2026). Local Democracy Program: Funding Guidelines 2027.",
     type: "Funder guideline",
-    topicArea: "Democracy and participation",
+    topicArea: "Democracy",
     tags: ["Democracy", "Funding"],
     visibility: "team",
   },
@@ -112,7 +107,7 @@ const SOURCES: DemoSource[] = [
     location: "p. 2",
     citation: "Sample, Sam (2026). Measuring Impact Without a Data Team. Nonprofit Practice Review 4 (2).",
     type: "Article",
-    topicArea: "Civil society",
+    topicArea: "Cross-cutting",
     tags: ["Impact", "Digital"],
     visibility: "all",
   },
@@ -125,7 +120,7 @@ const SOURCES: DemoSource[] = [
     location: "p. 21",
     citation: "Example Centre for Participation (2025). Youth Councils That Last. Policy paper.",
     type: "Policy paper",
-    topicArea: "Democracy and participation",
+    topicArea: "Youth",
     tags: ["Democracy", "Education"],
     visibility: "all",
   },
@@ -138,7 +133,7 @@ const SOURCES: DemoSource[] = [
     location: "p. 9",
     citation: "Example Health Network (2026). Community Health Workers in Rural Areas.",
     type: "Report",
-    topicArea: "Health and care",
+    topicArea: "Health",
     tags: ["Health", "Funding"],
     visibility: "all",
     draft: true,
@@ -154,6 +149,7 @@ async function main() {
   if (!byName("erika") || !byName("adam")) throw new Error("Run `npm run directory:sync` first: Erika and Adam must be in the database.");
 
   await ensureDefaultDocumentTypes(db);
+  await ensureDefaultTopicAreas(db);
   await importTaxonomy(db, TAXONOMY);
   const tags = await db.select().from(tag);
   const types = await db.select().from(documentType);

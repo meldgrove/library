@@ -23,12 +23,26 @@ entry that is no longer needed is deactivated: it stays on its notes but is
 no longer offered. The library can be filtered by tag, topic area, document
 type, and team (the owner's team).
 
-On its first start, the worker adds the default document types, with
-descriptions, when there are none: Study, Report, Article, Policy paper,
-Funder guideline, Book, Presentation, Website, Podcast, Transcript, Social
-media post, and Other. A library that imports its own document types before
-that start gets only its own. Topic areas have no defaults, because every
-organization's are different: add them on the page or import them.
+On its first start, the worker adds default document types and topic areas,
+each with a description, to a list that is still empty. Maintainers then
+rename, describe, deactivate, or add entries like any other. A library that
+imports its own document types or topic areas before that start gets only
+its own.
+
+- **Document types:** Study, Report, Article, Policy paper, Funder guideline,
+  Book, Presentation, Website, Podcast, Transcript, Social media post, and
+  Other.
+- **Topic areas:** Agriculture, Agroforestry, Aging, Arts & culture, Building
+  & housing, Climate action & nature, Community & social cohesion, Community
+  catering, Cross-cutting, Democracy, Economy & industry, Education, Energy &
+  utilities, Europe, Family & children, Finance, Food & nutrition, Health,
+  Justice & law, Media & communication, Migration & refugees, Mobility &
+  logistics, Nursing & care, Other, Paludiculture, Politics, Public
+  administration & civil service, Public safety, Religion & belief, Research,
+  Social affairs & inclusion, Sports, Technology & digital transformation,
+  Tourism, Work & skilled labor, and Youth.
+
+The descriptions are in `src/lib/library/taxonomy.ts`.
 
 ## Importing a taxonomy
 
