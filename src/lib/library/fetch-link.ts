@@ -29,6 +29,7 @@ for (const [network, prefix] of [
   ["172.16.0.0", 12],
   ["192.0.0.0", 24],
   ["192.0.2.0", 24],
+  ["192.88.99.0", 24],
   ["192.168.0.0", 16],
   ["198.18.0.0", 15],
   ["198.51.100.0", 24],
@@ -38,14 +39,15 @@ for (const [network, prefix] of [
 ] as const) {
   blocked.addSubnet(network, prefix, "ipv4");
 }
+const globalUnicast = new BlockList();
+globalUnicast.addSubnet("2000::", 3, "ipv6");
+const mappedIpv4 = new BlockList();
+mappedIpv4.addSubnet("::ffff:0:0", 96, "ipv6");
 for (const [network, prefix] of [
-  ["::", 128],
-  ["::1", 128],
-  ["fc00::", 7],
-  ["fe80::", 10],
-  ["ff00::", 8],
+  ["2001::", 23],
   ["2001:db8::", 32],
-  ["64:ff9b::", 96],
+  ["2002::", 16],
+  ["3fff::", 20],
 ] as const) {
   blocked.addSubnet(network, prefix, "ipv6");
 }
@@ -53,14 +55,12 @@ for (const [network, prefix] of [
 /** Loopback, private, link-local, and other addresses that are not on the public internet. */
 export function isPrivateAddress(address: string): boolean {
   const family = isIP(address);
-  if (family === 0) return true;
-  if (family === 6) {
-    // IPv4-mapped IPv6 (::ffff:10.0.0.1) is checked as IPv4.
-    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address);
-    if (mapped) return blocked.check(mapped[1]!, "ipv4");
-    return blocked.check(address, "ipv6");
-  }
-  return blocked.check(address, "ipv4");
+  if (family === 4) return blocked.check(address, "ipv4");
+  if (family !== 6 || address.includes("%")) return true;
+  // BlockList matches IPv4 subnets against mapped IPv6 in either notation.
+  if (mappedIpv4.check(address, "ipv6")) return blocked.check(address, "ipv6");
+  // Restrict native IPv6 to public unicast, excluding special-use ranges.
+  return !globalUnicast.check(address, "ipv6") || blocked.check(address, "ipv6");
 }
 
 /** A DNS lookup that refuses names resolving to non-public addresses. */

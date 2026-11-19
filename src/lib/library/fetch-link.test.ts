@@ -10,8 +10,14 @@ describe("isPrivateAddress", () => {
     }
   });
 
+  it("refuses non-public IPv6 ranges and alternate spellings of mapped IPv4", () => {
+    for (const address of ["::ffff:c000:201", "0:0:0:0:0:ffff:c000:201", "64:ff9b:1::1", "fec0::1", "2002::1", "3fff::1"]) {
+      expect(isPrivateAddress(address), address).toBe(true);
+    }
+  });
+
   it("allows public addresses", () => {
-    for (const address of ["1.1.1.1", "142.250.185.78", "2a00:1450:4001:82a::200e", "::ffff:8.8.8.8"]) {
+    for (const address of ["1.1.1.1", "142.250.185.78", "2a00:1450:4001:82a::200e", "::ffff:8.8.8.8", "::ffff:808:808"]) {
       expect(isPrivateAddress(address), address).toBe(false);
     }
   });
