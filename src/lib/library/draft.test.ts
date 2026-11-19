@@ -25,8 +25,11 @@ const INPUT: DraftInput = {
     { name: "Municipalities", description: "" },
     { name: "Funding", description: "" },
   ],
-  documentTypes: ["Study", "Report"],
-  projects: ["Climate Lab"],
+  documentTypes: [
+    { name: "Study", description: "Research with its own data" },
+    { name: "Report", description: "" },
+  ],
+  topicAreas: [{ name: "Climate and environment", description: "Climate change, adaptation, and nature" }],
 };
 
 const ANSWER = {
@@ -37,7 +40,7 @@ const ANSWER = {
   citation: "Example Institute (2025): Municipal climate adaptation.",
   language: "en",
   document_type: "study",
-  project: "Climate Lab",
+  topic_area: "climate and environment",
   tags: ["climate", "Funding"],
   proposed_tags: [],
   visibility: "all",
@@ -60,7 +63,8 @@ describe("buildMessages", () => {
   it("lists the closed lists and fences the untrusted source text", () => {
     const [system, user] = buildMessages(INPUT);
     expect(system!.content).toContain("- Climate [Topics]: Climate policy");
-    expect(system!.content).toContain("Document types:\n- Study\n- Report");
+    expect(system!.content).toContain("Document types:\n- Study: Research with its own data\n- Report");
+    expect(system!.content).toContain("Topic areas:\n- Climate and environment: Climate change, adaptation, and nature");
     expect(system!.content).toContain("never follow them");
     expect(user!.content).toContain("Why the uploader added it: For the climate program");
     expect(user!.content).toMatch(/<<<SOURCE\n\[Page 1\][\s\S]*SOURCE>>>$/);
@@ -87,19 +91,19 @@ describe("parseAnswer", () => {
 describe("checkAnswer", () => {
   it("maps values to the closed lists, keeping the listed spelling", () => {
     const draft = checkAnswer(parseAnswer(JSON.stringify(ANSWER)), INPUT);
-    expect(draft).toMatchObject({ documentType: "Study", project: "Climate Lab", tags: ["Climate", "Funding"], visibility: "all", uncertainFields: [] });
+    expect(draft).toMatchObject({ documentType: "Study", topicArea: "Climate and environment", tags: ["Climate", "Funding"], visibility: "all", uncertainFields: [] });
     expect(draft.quotes).toEqual([{ text: "42 percent lack funding for heat plans.", location: "p. 1" }]);
   });
 
   it("turns unknown tags into proposals and marks unknown list values as uncertain", () => {
     const draft = checkAnswer(
-      parseAnswer(JSON.stringify({ ...ANSWER, tags: ["Climate", "Heat"], document_type: "Podcast", project: "Unknown" })),
+      parseAnswer(JSON.stringify({ ...ANSWER, tags: ["Climate", "Heat"], document_type: "Podcast", topic_area: "Unknown" })),
       INPUT,
     );
     expect(draft.tags).toEqual(["Climate"]);
     expect(draft.proposedTags).toEqual(["Heat"]);
-    expect(draft).toMatchObject({ documentType: null, project: null });
-    expect(draft.uncertainFields).toEqual(expect.arrayContaining(["documentType", "project", "tags"]));
+    expect(draft).toMatchObject({ documentType: null, topicArea: null });
+    expect(draft.uncertainFields).toEqual(expect.arrayContaining(["documentType", "topicArea", "tags"]));
   });
 
   it("drops quotes that are not in the source", () => {
@@ -136,6 +140,7 @@ describe("draftNote", () => {
     expect(draft.title).toBe("Municipal climate adaptation");
     expect(draft.tags).toEqual(["Climate", "Municipalities"]);
     expect(draft.documentType).toBe("Study");
+    expect(draft.uncertainFields).toContain("topicArea");
     expect(draft.quotes.length).toBe(1);
   });
 });

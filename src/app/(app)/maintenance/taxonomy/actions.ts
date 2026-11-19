@@ -8,33 +8,49 @@ import {
   acceptTagProposal,
   createCluster,
   createDocumentType,
-  createProject,
   createTag,
+  createTopicArea,
+  deleteCluster,
+  descriptionSchema,
   nameSchema,
   rejectTagProposal,
+  renameCluster,
   setDocumentTypeActive,
-  setProjectActive,
   setTagActive,
+  setTopicAreaActive,
+  updateDocumentType,
   updateTag,
+  updateTopicArea,
 } from "@/lib/library/taxonomy";
 
-/* The steward's taxonomy page. Every command checks that the actor is an admin. */
+/* The taxonomy page. Every command checks that the actor is a maintainer. */
 
-const PAGE = "/admin/taxonomy";
+const PAGE = "/maintenance/taxonomy";
 const noFields = z.object({});
 const nameOnly = z.object({ name: nameSchema });
+const entrySchema = z.object({ name: nameSchema, description: descriptionSchema });
 const clusterId = z.preprocess((value) => (value === "" ? null : value), z.uuid().nullable());
-const tagSchema = z.object({
-  name: nameSchema,
-  description: z.string().trim().max(300, "At most 300 characters.").default(""),
-  clusterId,
-});
+const tagSchema = z.object({ name: nameSchema, description: descriptionSchema, clusterId });
 
 export async function createClusterAction(_state: FormState, formData: FormData): Promise<FormState> {
   return submit(formData, nameOnly, async (actor, input) => {
     await createCluster(getDb(), actor, input.name);
     return PAGE;
   });
+}
+
+export async function renameClusterAction(id: string, _state: FormState, formData: FormData): Promise<FormState> {
+  return submit(formData, nameOnly, async (actor, input) => {
+    await renameCluster(getDb(), actor, id, input.name);
+    return PAGE;
+  }, boundValues.id.safeParse([id]));
+}
+
+export async function deleteClusterAction(id: string, _state: FormState, formData: FormData): Promise<FormState> {
+  return submit(formData, noFields, async (actor) => {
+    await deleteCluster(getDb(), actor, id);
+    return PAGE;
+  }, boundValues.id.safeParse([id]));
 }
 
 export async function createTagAction(_state: FormState, formData: FormData): Promise<FormState> {
@@ -59,10 +75,17 @@ export async function setTagActiveAction(tagId: string, isActive: boolean, _stat
 }
 
 export async function createDocumentTypeAction(_state: FormState, formData: FormData): Promise<FormState> {
-  return submit(formData, nameOnly, async (actor, input) => {
-    await createDocumentType(getDb(), actor, input.name);
+  return submit(formData, entrySchema, async (actor, input) => {
+    await createDocumentType(getDb(), actor, input);
     return PAGE;
   });
+}
+
+export async function updateDocumentTypeAction(id: string, _state: FormState, formData: FormData): Promise<FormState> {
+  return submit(formData, entrySchema, async (actor, input) => {
+    await updateDocumentType(getDb(), actor, id, input);
+    return PAGE;
+  }, boundValues.id.safeParse([id]));
 }
 
 export async function setDocumentTypeActiveAction(id: string, isActive: boolean, _state: FormState, formData: FormData): Promise<FormState> {
@@ -72,23 +95,30 @@ export async function setDocumentTypeActiveAction(id: string, isActive: boolean,
   }, boundValues.idAndFlag.safeParse([id, isActive]));
 }
 
-export async function createProjectAction(_state: FormState, formData: FormData): Promise<FormState> {
-  return submit(formData, nameOnly, async (actor, input) => {
-    await createProject(getDb(), actor, input.name);
+export async function createTopicAreaAction(_state: FormState, formData: FormData): Promise<FormState> {
+  return submit(formData, entrySchema, async (actor, input) => {
+    await createTopicArea(getDb(), actor, input);
     return PAGE;
   });
 }
 
-export async function setProjectActiveAction(id: string, isActive: boolean, _state: FormState, formData: FormData): Promise<FormState> {
+export async function updateTopicAreaAction(id: string, _state: FormState, formData: FormData): Promise<FormState> {
+  return submit(formData, entrySchema, async (actor, input) => {
+    await updateTopicArea(getDb(), actor, id, input);
+    return PAGE;
+  }, boundValues.id.safeParse([id]));
+}
+
+export async function setTopicAreaActiveAction(id: string, isActive: boolean, _state: FormState, formData: FormData): Promise<FormState> {
   return submit(formData, noFields, async (actor) => {
-    await setProjectActive(getDb(), actor, id, isActive);
+    await setTopicAreaActive(getDb(), actor, id, isActive);
     return PAGE;
   }, boundValues.idAndFlag.safeParse([id, isActive]));
 }
 
 const acceptSchema = z.union([
   z.object({ existingTagId: z.uuid("Choose a tag.") }),
-  z.object({ existingTagId: z.literal("").optional(), name: nameSchema, clusterId, description: z.string().trim().max(300).default("") }),
+  z.object({ existingTagId: z.literal("").optional(), name: nameSchema, clusterId, description: descriptionSchema }),
 ]);
 
 export async function acceptTagProposalAction(proposalId: string, _state: FormState, formData: FormData): Promise<FormState> {

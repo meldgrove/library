@@ -12,7 +12,7 @@ why.
   who added it and why.
 - **AI drafts, people decide**: the model fills a fixed note template (core
   statement, key points, quotes with page numbers, citation) and picks tags,
-  document types, and projects from closed lists. Quotes not found in the
+  a topic area, and a document type from closed lists. Quotes not found in the
   source are dropped. Nothing is published before its uploader confirms it.
 - **Claude or any OpenAI-compatible AI provider**: Anthropic's Claude API,
   Mistral, OpenAI, Azure OpenAI, or a self-hosted model, with a daily limit.
@@ -21,8 +21,10 @@ why.
   models; the model gets no tools.
 - **Originals are kept** once per file, on a volume or in S3-compatible
   storage, for re-drafting and for checking quotes. Scanned PDFs get OCR.
-- **Visibility per note**: "Everyone", "My team", or "Only me". Stewards
-  check published notes and decide on uploads on hold.
+- **Visibility per note**: "Everyone", "My team", or "Only me".
+- **Three roles**: members add and review their own sources, maintainers look
+  after the content (checks, uploads on hold, the taxonomy), and admins run
+  the app.
 - **Login with any OpenID Connect provider** (Keycloak, Microsoft Entra ID,
   Google, Okta, Authentik, Zitadel, …). People and teams are managed in the
   library (invitations), or synced from Keycloak groups.
@@ -55,10 +57,10 @@ npm run dev                                # http://localhost:3000
 npm run worker                             # in a second terminal: drafts uploads with a fake AI model
 ```
 
-Sign in as `erika` (has access), `adam` (admin), or `olga` (no access), each
-with the password `library-dev`. The development setup reads people and teams
-from Keycloak groups; see [`.env.example`](.env.example) to try the manual
-directory instead.
+Sign in as `erika` (member), `maya` (maintainer), `adam` (admin), or `olga`
+(no access), each with the password `library-dev`. The development setup reads
+people and teams from Keycloak groups; see [`.env.example`](.env.example) to
+try the manual directory instead.
 
 `compose.yaml` is the production setup, so a plain `docker compose up` runs
 the library itself; see [Deployment](docs/deployment.md).

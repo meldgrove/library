@@ -1,4 +1,4 @@
-import { CircleAlert, Tags, Users, UsersRound } from "lucide-react";
+import { CircleAlert, Users, UsersRound } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
@@ -59,12 +59,6 @@ export default async function AdminPage() {
               <Link href="/admin/teams">
                 <UsersRound aria-hidden="true" />
                 Teams
-              </Link>
-            </Button>
-            <Button asChild variant="outline" size="sm">
-              <Link href="/admin/taxonomy">
-                <Tags aria-hidden="true" />
-                Taxonomy
               </Link>
             </Button>
           </div>
@@ -156,7 +150,7 @@ export default async function AdminPage() {
             <h2>Notifications</h2>
           </CardTitle>
           <CardDescription>
-            Uploaders get Slack direct messages about their drafts; stewards get emails about uploads on hold. When one
+            Uploaders get Slack direct messages about their drafts; maintainers get emails about uploads on hold. When one
             channel is off or cannot reach a person, the message goes out on the other. Each message goes out once.
           </CardDescription>
         </CardHeader>
@@ -271,7 +265,7 @@ export default async function AdminPage() {
           </CardTitle>
           <CardDescription>
             The worker extracts the text of each upload, screens it, checks for duplicates, and has the AI model draft
-            a note. Uploads on hold wait for a steward.
+            a note. Uploads on hold wait for a maintainer.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -352,26 +346,37 @@ export default async function AdminPage() {
       <Card>
         <CardHeader>
           <CardTitle>
-            <h2>Admins</h2>
+            <h2>Admins and maintainers</h2>
           </CardTitle>
           <CardDescription>
             {sync
-              ? `Members of ${sync.adminGroup} in Keycloak are admins, the library's stewards. Change them in Keycloak.`
-              : "Admins are the library's stewards: they maintain the taxonomy, decide uploads on hold, and delete notes. Change them on the People page."}
+              ? `Members of ${sync.adminGroup} in Keycloak are admins${sync.maintainerGroup ? `, members of ${sync.maintainerGroup} are maintainers` : ""}. Change them in Keycloak.`
+              : "Maintainers look after the content: drafts, checks, uploads on hold, and the taxonomy. Admins can do that too, and manage people, teams, and the app. Change roles on the People page."}
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <ul className="flex flex-col gap-1 text-sm">
-            {status.admins.map((admin) => (
-              <li key={admin.id}>
-                {admin.displayName}
-                {admin.workEmail ? <span className="text-muted-foreground"> · {admin.workEmail}</span> : null}
-              </li>
-            ))}
-          </ul>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <RoleList title="Admins" people={status.admins} />
+          <RoleList title="Maintainers" people={status.maintainers} />
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function RoleList({ title, people }: { title: string; people: { id: string; displayName: string; workEmail: string | null }[] }) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-sm font-medium">{title}</h3>
+      {people.length === 0 ? <p className="text-sm text-muted-foreground">Nobody.</p> : null}
+      <ul className="flex flex-col gap-1 text-sm">
+        {people.map((p) => (
+          <li key={p.id}>
+            {p.displayName}
+            {p.workEmail ? <span className="text-muted-foreground"> · {p.workEmail}</span> : null}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

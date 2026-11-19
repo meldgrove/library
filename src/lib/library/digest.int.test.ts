@@ -202,7 +202,7 @@ describe("personal digests", () => {
     // Not Engineering's team note, not someone else's private note, and not his own notes.
     expect(titlesIn(danDigest!)).toEqual(["Engineering for all"]);
     expect(danDigest!.message.footer).toBe("You get this email because you follow these tags in the library: Budget. Change them under Settings.");
-    // Stewards see team notes of every team, but never someone else's private notes.
+    // Maintainers see team notes of every team, but never someone else's private notes.
     const [amyDigest] = await digestOf(seed.people.amy.id);
     expect(titlesIn(amyDigest!)).toEqual(["Engineering for all", "Engineering team", "Operations team"]);
     expect(await digestOf(seed.people.lea.id)).toHaveLength(0);
@@ -229,7 +229,7 @@ describe("tag subscriptions", () => {
     expect((await subscriptionOptions(db, ada)).followed).toEqual([seed.tags.tools.id]);
     await expect(saveTagSubscriptions(db, ada, [seed.tags.old.id])).rejects.toThrow(/Choose tags from the list/);
     await expect(saveTagSubscriptions(db, ada, ["00000000-0000-4000-8000-000000000000"])).rejects.toThrow(/Choose tags from the list/);
-    // A followed tag that a steward deactivates stays followed, and listed.
+    // A followed tag that a maintainer deactivates stays followed, and listed.
     await db.update(tag).set({ isActive: false }).where(eq(tag.id, seed.tags.tools.id));
     await saveTagSubscriptions(db, ada, [seed.tags.tools.id]);
     const options = await subscriptionOptions(db, ada);
@@ -241,7 +241,7 @@ describe("tag subscriptions", () => {
 });
 
 describe("setTeamDigestChannel", () => {
-  it("lets stewards set and remove a team's channel, with an audit event", async () => {
+  it("lets admins set and remove a team's channel, with an audit event", async () => {
     await setTeamDigestChannel(db, seed.actors.amy, seed.teams.tech.id, "C0123456789");
     expect((await db.select().from(team).where(eq(team.id, seed.teams.tech.id)))[0]!.digestSlackChannelId).toBe("C0123456789");
     await setTeamDigestChannel(db, seed.actors.amy, seed.teams.tech.id, null);
@@ -254,7 +254,7 @@ describe("setTeamDigestChannel", () => {
   });
 
   it("refuses other people and channel names", async () => {
-    await expect(setTeamDigestChannel(db, seed.actors.ada, seed.teams.tech.id, "C0123456789")).rejects.toThrow(/Only stewards/);
+    await expect(setTeamDigestChannel(db, seed.actors.ada, seed.teams.tech.id, "C0123456789")).rejects.toThrow(/Only admins/);
     await expect(setTeamDigestChannel(db, seed.actors.amy, seed.teams.tech.id, "#climate")).rejects.toThrow(/Slack channel ID/);
   });
 });

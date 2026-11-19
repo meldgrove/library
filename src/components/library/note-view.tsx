@@ -15,7 +15,7 @@ const FIELD_LABELS: Record<string, string> = {
   citation: "citation",
   language: "language",
   documentType: "document type",
-  project: "project",
+  topicArea: "topic area",
   tags: "tags",
   visibility: "visibility",
 };
@@ -43,12 +43,12 @@ export function OriginalLink({ detail }: { detail: NoteDetail }) {
   );
 }
 
-/** The steward's mark on a note, in the list and on the note's page. */
+/** A maintainer's mark on a note, in the list and on the note's page. */
 export function CheckedBadge() {
   return (
     <Badge variant="outline" className="border-emerald-600/30 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
       <ShieldCheck aria-hidden="true" />
-      Checked by a steward
+      Checked by a maintainer
     </Badge>
   );
 }
@@ -167,6 +167,13 @@ export function NoteView({ detail, fmt }: { detail: NoteDetail; fmt: DateFormatt
               <OriginalLink detail={detail} />
             </Detail>
             <Detail label="Citation">{note.citation || "—"}</Detail>
+            {detail.topicAreaName ? (
+              <Detail label="Topic area">
+                <Link href={`/?topic=${note.topicAreaId}`} className="underline underline-offset-4">
+                  {detail.topicAreaName}
+                </Link>
+              </Detail>
+            ) : null}
             <Detail label="Tags">
               <span className="flex flex-wrap gap-1.5">
                 {detail.tags.length === 0 ? "—" : null}
@@ -177,7 +184,6 @@ export function NoteView({ detail, fmt }: { detail: NoteDetail; fmt: DateFormatt
                 ))}
               </span>
             </Detail>
-            {detail.projectName ? <Detail label="Project">{detail.projectName}</Detail> : null}
             <Detail label="Language">{note.language ? note.language.toUpperCase() : "—"}</Detail>
           </dl>
         </aside>

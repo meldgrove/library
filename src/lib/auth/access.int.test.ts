@@ -22,7 +22,7 @@ function syncWith(...ids: string[]) {
 
 /** The Keycloak directory, whose login sync is `run`. */
 function keycloak(run: DirectorySync["run"] = vi.fn()) {
-  return createKeycloakDirectory({ accessGroup: "/library", adminGroup: "/library-admins", run });
+  return createKeycloakDirectory({ accessGroup: "/library", adminGroup: "/library-admins", maintainerGroup: null, run });
 }
 
 /** A Better Auth user who logged in with the OIDC provider, and that login. */
@@ -129,7 +129,7 @@ describe("hasLoginAccess with the manual directory", () => {
     const login = await oidcUser("sub-owner", { email: "Owner@Example.org", name: "Olivia Owner" });
     await expect(hasLoginAccess(db, login, options(["owner@example.org"]))).resolves.toBe(true);
     const [owner] = await db.select().from(person);
-    expect(owner).toMatchObject({ oidcSubject: "sub-owner", displayName: "Olivia Owner", workEmail: "owner@example.org", isAdmin: true, hasAccess: true });
+    expect(owner).toMatchObject({ oidcSubject: "sub-owner", displayName: "Olivia Owner", workEmail: "owner@example.org", role: "admin", hasAccess: true });
     expect((await db.select().from(auditEvent)).map((e) => e.action)).toEqual(["person.first_admin"]);
 
     // Once there is an admin, the list grants nothing more.

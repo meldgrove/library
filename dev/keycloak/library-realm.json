@@ -15,6 +15,10 @@
       "path": "/library-admins"
     },
     {
+      "name": "library-maintainers",
+      "path": "/library-maintainers"
+    },
+    {
       "name": "teams",
       "path": "/teams",
       "subGroups": [
@@ -99,6 +103,26 @@
       "groups": [
         "/library-admins",
         "/teams/Operations"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "library-dev",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "44444444-4444-4444-8444-444444444444",
+      "username": "maya",
+      "email": "maya@example.test",
+      "emailVerified": true,
+      "firstName": "Maya",
+      "lastName": "Maintainer",
+      "enabled": true,
+      "groups": [
+        "/library-maintainers",
+        "/teams/Engineering"
       ],
       "credentials": [
         {

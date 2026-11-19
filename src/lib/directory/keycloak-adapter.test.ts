@@ -72,15 +72,16 @@ describe("createKeycloakDirectoryAdapter", () => {
     "/library": { id: "g-access", members: [user("erika"), user("off", { enabled: false })], children: ["/library/contractors"] },
     "/library/contractors": { id: "g-contractors", members: [user("carl", { firstName: "", lastName: "" })] },
     "/library-admins": { id: "g-admins", members: [user("adam")] },
+    "/library-maintainers": { id: "g-maintainers", members: [user("mia"), user("adam")] },
     "/teams": { id: "g-teams", children: ["/teams/Operations", "/teams/Engineering"] },
     "/teams/Engineering": { id: "g-eng", members: [user("erika")], children: ["/teams/Engineering/Platform"] },
     "/teams/Engineering/Platform": { id: "g-platform", members: [user("carl")] },
     "/teams/Operations": { id: "g-ops", members: [user("adam"), user("erika")] },
   };
 
-  it("reads the access group with its subgroups, the admins, and the teams", async () => {
+  it("reads the access group with its subgroups, the admins, the maintainers, and the teams", async () => {
     const keycloak = fakeKeycloak({ groups });
-    const snapshot = await adapterFor(keycloak, { adminGroup: "/library-admins", teamsGroup: "/teams" }).fetchSnapshot();
+    const snapshot = await adapterFor(keycloak, { adminGroup: "/library-admins", maintainerGroup: "/library-maintainers", teamsGroup: "/teams" }).fetchSnapshot();
 
     expect(snapshot.teams).toEqual([
       { externalId: "g-eng", name: "Engineering", active: true },
@@ -88,11 +89,13 @@ describe("createKeycloakDirectoryAdapter", () => {
     ]);
     expect(snapshot.people.sort((a, b) => a.externalId.localeCompare(b.externalId))).toEqual([
       // Admins have access too.
-      { externalId: "adam", subject: "adam", displayName: "ADAM Example", email: "adam@example.org", teamExternalId: "g-ops", isAdmin: true },
+      { externalId: "adam", subject: "adam", displayName: "ADAM Example", email: "adam@example.org", teamExternalId: "g-ops", role: "admin" },
       // No name in Keycloak: the username.
-      { externalId: "carl", subject: "carl", displayName: "carl", email: "carl@example.org", teamExternalId: "g-eng", isAdmin: false },
+      { externalId: "carl", subject: "carl", displayName: "carl", email: "carl@example.org", teamExternalId: "g-eng", role: "member" },
       // In two teams: the first by name.
-      { externalId: "erika", subject: "erika", displayName: "ERIKA Example", email: "erika@example.org", teamExternalId: "g-eng", isAdmin: false },
+      { externalId: "erika", subject: "erika", displayName: "ERIKA Example", email: "erika@example.org", teamExternalId: "g-eng", role: "member" },
+      // Maintainers have access too; in both groups, admin wins (adam).
+      { externalId: "mia", subject: "mia", displayName: "MIA Example", email: "mia@example.org", teamExternalId: null, role: "maintainer" },
     ]);
   });
 

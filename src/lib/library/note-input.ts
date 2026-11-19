@@ -58,7 +58,7 @@ export const noteFormSchema = z.object({
     .regex(/^([a-z]{2})?$/, "Use a two-letter code such as de or en.")
     .transform((value) => value || null),
   documentTypeId: optionalId,
-  projectId: optionalId,
+  topicAreaId: optionalId,
   // A single checked box arrives as a string.
   tagIds: z.preprocess((value) => (typeof value === "string" ? [value] : (value ?? [])), z.array(z.uuid())),
   newTags: z.string().default("").transform(parseTagNames),

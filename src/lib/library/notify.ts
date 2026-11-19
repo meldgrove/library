@@ -1,4 +1,5 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
+import { canMaintain, ROLES } from "@/lib/auth/roles";
 import type { Database, Transaction } from "@/lib/db/client";
 import { notificationDelivery, person, type NotificationChannel } from "@/lib/db/schema";
 import type { NotificationMessage } from "@/lib/notifications/types";
@@ -18,7 +19,6 @@ export type LibraryEvent =
   | "parked"
   | "review_reminder"
   | "review_escalated"
-  | "published_for_steward"
   | "intake_reply"
   | "personal_digest";
 
@@ -94,16 +94,16 @@ export async function emailToAddress(
   return inserted.length > 0;
 }
 
-/** The stewards: admins with access. */
-export async function stewardIds(tx: Database | Transaction): Promise<string[]> {
+/** Everyone with access who looks after the content: maintainers and admins. */
+export async function maintainerIds(tx: Database | Transaction): Promise<string[]> {
   const rows = await tx
     .select({ id: person.id })
     .from(person)
-    .where(and(eq(person.hasAccess, true), eq(person.isAdmin, true)));
+    .where(and(eq(person.hasAccess, true), inArray(person.role, ROLES.filter(canMaintain))));
   return rows.map((row) => row.id);
 }
 
-/** Tells every steward, e.g. about a quarantined upload. */
-export async function notifyStewards(tx: Database | Transaction, delivery: Omit<PersonMessage, "recipientId">): Promise<void> {
-  for (const id of await stewardIds(tx)) await notifyPerson(tx, { ...delivery, recipientId: id });
+/** Tells every maintainer, e.g. about a quarantined upload. */
+export async function notifyMaintainers(tx: Database | Transaction, delivery: Omit<PersonMessage, "recipientId">): Promise<void> {
+  for (const id of await maintainerIds(tx)) await notifyPerson(tx, { ...delivery, recipientId: id });
 }

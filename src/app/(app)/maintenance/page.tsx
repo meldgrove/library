@@ -6,27 +6,27 @@ import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { getFormatter, requireAdmin } from "@/lib/auth/session";
+import { getFormatter, requireMaintainer } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { viewerOf } from "@/lib/library/access";
 import { notePath, noteRef } from "@/lib/library/constants";
-import { stewardQueues } from "@/lib/library/review";
+import { maintenanceQueues } from "@/lib/library/review";
 import { deleteSubmissionAction, releaseSubmissionAction, retrySubmissionAction } from "./actions";
 
-export const metadata: Metadata = { title: "Steward" };
+export const metadata: Metadata = { title: "Maintenance" };
 
 /** The exceptions: uploads on hold, drafts nobody reviews, and published notes to check. */
-export default async function StewardPage() {
-  const { person } = await requireAdmin();
-  const [fmt, queues] = await Promise.all([getFormatter(), stewardQueues(getDb(), viewerOf(person))]);
+export default async function MaintenancePage() {
+  const { person } = await requireMaintainer();
+  const [fmt, queues] = await Promise.all([getFormatter(), maintenanceQueues(getDb(), viewerOf(person))]);
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="Steward"
-        description="Everything that needs a steward. Uploaders review their own drafts; you see only the exceptions."
+        title="Maintenance"
+        description="Everything that needs a maintainer. Uploaders review their own drafts; you see only the exceptions."
         actions={
           queues.pendingProposals > 0 ? (
-            <Link href="/admin/taxonomy" className="text-sm underline underline-offset-4">
+            <Link href="/maintenance/taxonomy" className="text-sm underline underline-offset-4">
               {queues.pendingProposals === 1 ? "1 tag proposal" : `${queues.pendingProposals} tag proposals`}
             </Link>
           ) : null

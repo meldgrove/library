@@ -2,7 +2,7 @@ import type { ScreenFinding } from "./constants";
 
 /*
  * The screen every upload passes before the AI model sees it. Plain code, no
- * I/O: a finding quarantines the upload, and a steward releases or deletes it.
+ * I/O: a finding quarantines the upload, and a maintainer releases or deletes it.
  *
  * The injection and credential rules catch copy-pasted boilerplate and are
  * tuned for few false positives; they are not a trust boundary. The real
@@ -177,7 +177,7 @@ const CATEGORY_LABELS: Record<ScreenFinding["category"], string> = {
   prompt_injection: "text that tries to instruct an AI model",
 };
 
-/** One line for the uploader and the steward. */
+/** One line for the uploader and the maintainer. */
 export function describeFindings(findings: readonly ScreenFinding[]): string {
   const categories = [...new Set(findings.map((finding) => CATEGORY_LABELS[finding.category]))];
   return `The screen found ${categories.join(" and ")} (${findings.map((finding) => finding.rule).join(", ")}).`;

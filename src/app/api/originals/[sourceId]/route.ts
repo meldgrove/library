@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { canMaintain } from "@/lib/auth/roles";
 import { getCurrentPerson } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { note, source, submission } from "@/lib/db/schema";
@@ -33,7 +34,7 @@ export async function GET(_request: Request, { params }: RouteContext<"/api/orig
     .from(submission)
     .where(and(eq(submission.sourceId, sourceId), eq(submission.submitterId, person.id)))
     .limit(1);
-  const allowed = uploaded.length > 0 || (ownNote !== undefined && canSeeNote(viewerOf(person), ownNote)) || (person.isAdmin && !ownNote);
+  const allowed = uploaded.length > 0 || (ownNote !== undefined && canSeeNote(viewerOf(person), ownNote)) || (canMaintain(person.role) && !ownNote);
   if (!allowed) return notFound();
 
   const bytes = (await getStorage()?.get(row.storageKey)) ?? null;

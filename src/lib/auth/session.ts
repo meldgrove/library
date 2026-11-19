@@ -8,6 +8,7 @@ import { findPersonBySubject, type PersonRow } from "@/lib/directory/queries";
 import { createDateFormatter, type DateFormatter } from "@/lib/format";
 import { displayPreferences } from "@/lib/preferences";
 import { getAuth } from "./auth";
+import { canAdminister, canMaintain } from "./roles";
 
 export interface CurrentUser {
   userId: string;
@@ -48,7 +49,8 @@ export const getFormatter = cache(async (): Promise<DateFormatter> => {
 
 /**
  * Every page, Server Action, and route handler calls this (or
- * `requireAdmin`). It checks the access flag in the database on each request.
+ * `requireMaintainer` or `requireAdmin`). It checks the access flag in the
+ * database on each request.
  */
 export async function requireUser(): Promise<CurrentUser> {
   const loaded = await loadRequestUser();
@@ -61,9 +63,16 @@ export async function requireUser(): Promise<CurrentUser> {
   return { userId: loaded.session.user.id, person: loaded.person };
 }
 
-/** Like `requireUser`, and the person must be a library admin. */
+/** Like `requireUser`, and the person must look after the content: a maintainer or an admin. */
+export async function requireMaintainer(): Promise<CurrentUser> {
+  const user = await requireUser();
+  if (!canMaintain(user.person.role)) notFound();
+  return user;
+}
+
+/** Like `requireUser`, and the person must be an admin. */
 export async function requireAdmin(): Promise<CurrentUser> {
   const user = await requireUser();
-  if (!user.person.isAdmin) notFound();
+  if (!canAdminister(user.person.role)) notFound();
   return user;
 }

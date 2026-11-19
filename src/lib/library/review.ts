@@ -1,8 +1,9 @@
 import { and, asc, desc, eq, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { recordAudit } from "@/lib/audit";
+import { canMaintain } from "@/lib/auth/roles";
 import { CommandError, type Actor } from "@/lib/commands";
 import type { Database, Transaction } from "@/lib/db/client";
-import { documentType, note, noteTag, noteVersion, notificationDelivery, person, project, source, submission, tag, tagProposal } from "@/lib/db/schema";
+import { documentType, note, noteTag, noteVersion, notificationDelivery, person, source, submission, tag, tagProposal, topicArea } from "@/lib/db/schema";
 import { errorMessage, logger } from "@/lib/logger";
 import { requestWebhookSync } from "@/lib/webhook/sync";
 import type { Storage } from "@/lib/storage";
@@ -10,17 +11,17 @@ import { canEditNote, visibleNotes, visibleTagProposals, type Viewer } from "./a
 import { NOTE_LIMITS, notePath, noteRef } from "./constants";
 import type { NoteFormInput } from "./note-input";
 import { noteSearchText, snapshotOf } from "./note-text";
-import { notifyPerson, notifyStewards } from "./notify";
+import { notifyPerson, notifyMaintainers } from "./notify";
 import { cleanUpOriginals, requestOriginalCleanup } from "./originals";
 
 /*
- * The uploader's review and the steward's work. Every command checks, writes,
+ * The uploader's review and the maintainers' work. Every command checks, writes,
  * and states its effects in one transaction: the audit event, the new
  * version, and, when the published state may change, a webhook sync.
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-/** The uploader gets a reminder after a week; the stewards hear of drafts open after 30 days. */
+/** The uploader gets a reminder after a week; the maintainers hear of drafts open after 30 days. */
 export const REMINDER_AFTER_DAYS = 7;
 export const ESCALATE_AFTER_DAYS = 30;
 
@@ -33,13 +34,13 @@ async function lockNote(tx: Transaction, noteId: string) {
 }
 
 function requireEditor(actor: Actor, row: typeof note.$inferSelect) {
-  if (!canEditNote({ personId: actor.personId, isAdmin: actor.isAdmin, teamId: null }, row)) {
-    throw new CommandError("forbidden", "Only the note's owner and the stewards can change it.");
+  if (!canEditNote({ personId: actor.personId, role: actor.role, teamId: null }, row)) {
+    throw new CommandError("forbidden", "Only the note's owner and the maintainers can change it.");
   }
 }
 
-function requireSteward(actor: Actor) {
-  if (!actor.isAdmin) throw new CommandError("forbidden", "Only stewards can do this.");
+function requireMaintainer(actor: Actor) {
+  if (!canMaintain(actor.role)) throw new CommandError("forbidden", "Only maintainers can do this.");
 }
 
 /**
@@ -56,17 +57,17 @@ export async function saveNote(db: Database, actor: Actor, noteId: string, input
     const published = publishing || current.status === "published";
 
     if (input.visibility === "team" && !current.teamId) throw invalid("visibility", "The owner has no team. Choose Everyone or Only me.");
-    // The note's current entries stay valid when a steward deactivates them; new ones must be active.
+    // The note's current entries stay valid when a maintainer deactivates them; new ones must be active.
     const [type] = input.documentTypeId ? await tx.select().from(documentType).where(eq(documentType.id, input.documentTypeId)) : [];
     if (input.documentTypeId && (!type || (!type.isActive && type.id !== current.documentTypeId))) {
       throw invalid("documentTypeId", "Choose a document type from the list.");
     }
-    const [projectRow] = input.projectId ? await tx.select().from(project).where(eq(project.id, input.projectId)) : [];
-    if (input.projectId && (!projectRow || (!projectRow.isActive && projectRow.id !== current.projectId))) {
-      throw invalid("projectId", "Choose a project from the list.");
+    const [area] = input.topicAreaId ? await tx.select().from(topicArea).where(eq(topicArea.id, input.topicAreaId)) : [];
+    if (input.topicAreaId && (!area || (!area.isActive && area.id !== current.topicAreaId))) {
+      throw invalid("topicAreaId", "Choose a topic area from the list.");
     }
     const currentTagIds = new Set((await tx.select({ tagId: noteTag.tagId }).from(noteTag).where(eq(noteTag.noteId, noteId))).map((row) => row.tagId));
-    // Tags already on the note stay valid when a steward deactivates them; new ones must be active.
+    // Tags already on the note stay valid when a maintainer deactivates them; new ones must be active.
     const tags = input.tagIds.length > 0 ? await tx.select().from(tag).where(inArray(tag.id, input.tagIds)) : [];
     if (tags.length !== new Set(input.tagIds).size || tags.some((t) => !t.isActive && !currentTagIds.has(t.id))) {
       throw invalid("tagIds", "Choose tags from the list.");
@@ -93,7 +94,7 @@ export async function saveNote(db: Database, actor: Actor, noteId: string, input
       citation: input.citation,
       language: input.language,
       documentTypeId: type?.id ?? null,
-      projectId: projectRow?.id ?? null,
+      topicAreaId: area?.id ?? null,
       visibility: input.visibility,
     };
     await tx
@@ -106,7 +107,7 @@ export async function saveNote(db: Database, actor: Actor, noteId: string, input
         ...(publishing
           ? { status: "published" as const, publishedAt: now, confirmedAt: now, confirmedById: actor.personId, uncertainFields: [] }
           : current.status === "published"
-            ? // A steward's check was of the earlier version.
+            ? // A maintainer's check was of the earlier version.
               { editedAt: now, checkedAt: null, checkedById: null }
             : {}),
       })
@@ -196,12 +197,12 @@ export async function deleteNote(db: Database, storage: Storage | null, actor: A
   await cleanUpNow(db, storage, keys);
 }
 
-/** A steward has checked a published note against its source. */
+/** A maintainer has checked a published note against its source. */
 export async function checkNote(db: Database, actor: Actor, noteId: string, now: Date = new Date()): Promise<void> {
-  requireSteward(actor);
+  requireMaintainer(actor);
   await db.transaction(async (tx) => {
     const current = await lockNote(tx, noteId);
-    // A private note is its owner's alone, also for stewards.
+    // A private note is its owner's alone, also for maintainers.
     requireEditor(actor, current);
     if (current.status !== "published") throw new CommandError("invalid", "Only published notes can be checked.");
     await tx.update(note).set({ checkedAt: now, checkedById: actor.personId, updatedAt: now }).where(eq(note.id, noteId));
@@ -216,9 +217,9 @@ async function lockSubmission(tx: Transaction, submissionId: string) {
   return row;
 }
 
-/** Lets a quarantined upload pass the screen: the steward checked it is fine. */
+/** Lets a quarantined upload pass the screen: the maintainer checked it is fine. */
 export async function releaseSubmission(db: Database, actor: Actor, submissionId: string, now: Date = new Date()): Promise<void> {
-  requireSteward(actor);
+  requireMaintainer(actor);
   await db.transaction(async (tx) => {
     const row = await lockSubmission(tx, submissionId);
     if (row.status !== "quarantined") throw new CommandError("invalid", "Only uploads on hold after the screen can be released.");
@@ -232,7 +233,7 @@ export async function releaseSubmission(db: Database, actor: Actor, submissionId
 
 /** Tries a parked upload again, e.g. after OCR was set up or the AI model is back. */
 export async function retrySubmission(db: Database, actor: Actor, submissionId: string, now: Date = new Date()): Promise<void> {
-  requireSteward(actor);
+  requireMaintainer(actor);
   await db.transaction(async (tx) => {
     const row = await lockSubmission(tx, submissionId);
     if (row.status !== "parked") throw new CommandError("invalid", "Only parked uploads can be tried again.");
@@ -246,7 +247,7 @@ export async function retrySubmission(db: Database, actor: Actor, submissionId: 
 
 /** Deletes an upload on hold; its source and original go too when nothing else uses them. */
 export async function deleteSubmission(db: Database, storage: Storage | null, actor: Actor, submissionId: string): Promise<void> {
-  requireSteward(actor);
+  requireMaintainer(actor);
   const keys = await db.transaction(async (tx) => {
     const row = await lockSubmission(tx, submissionId);
     if (row.status !== "quarantined" && row.status !== "parked") throw new CommandError("invalid", "Only uploads on hold can be deleted here.");
@@ -270,7 +271,7 @@ export async function deleteSubmission(db: Database, storage: Storage | null, ac
 }
 
 /**
- * Reminds owners of drafts open for a week, and tells the stewards about
+ * Reminds owners of drafts open for a week, and tells the maintainers about
  * drafts open for 30 days (not private ones). Each at most once per draft.
  */
 export async function recordReviewReminders(db: Database, now: Date = new Date()): Promise<{ reminded: number; escalated: number }> {
@@ -311,13 +312,13 @@ export async function recordReviewReminders(db: Database, now: Date = new Date()
     }
     const overdue = drafts.filter((row) => row.needsEscalation);
     for (const row of overdue) {
-      await notifyStewards(tx, {
+      await notifyMaintainers(tx, {
         event: "review_escalated",
         subjectKey: row.id,
         channel: "email",
         noteId: row.id,
         message: {
-          subject: `Steward: a draft has waited 30 days: ${noteRef(row.number)}`,
+          subject: `Maintenance: a draft has waited 30 days: ${noteRef(row.number)}`,
           title: `${noteRef(row.number)} · ${row.title}`,
           text: "This draft has waited 30 days for its owner. Review it, or ask the owner.",
           path: notePath(row.number),
@@ -344,10 +345,10 @@ export async function countMyDrafts(db: Database, personId: string): Promise<num
 }
 
 /**
- * The steward's queues. Notes go through the access rule like everywhere, and
+ * The maintainers' queues. Notes go through the access rule like everywhere, and
  * private drafts are their owners' alone: they are never escalated.
  */
-export async function stewardQueues(db: Database, viewer: Viewer, now: Date = new Date()) {
+export async function maintenanceQueues(db: Database, viewer: Viewer, now: Date = new Date()) {
   const [onHold, overdue, unchecked, [proposals]] = await Promise.all([
     db
       .select({
@@ -392,8 +393,8 @@ export async function stewardQueues(db: Database, viewer: Viewer, now: Date = ne
   return { onHold, overdue, unchecked, pendingProposals: proposals?.value ?? 0 };
 }
 
-/** Uploads on hold and drafts overdue: the steward's badge. */
-export async function countStewardWork(db: Database, now: Date = new Date()): Promise<number> {
+/** Uploads on hold and drafts overdue: the Maintenance badge. */
+export async function countMaintenanceWork(db: Database, now: Date = new Date()): Promise<number> {
   const [row] = await db
     .select({
       value: sql<number>`((select count(*) from submission where status in ('quarantined', 'parked')) + (select count(*) from note where status = 'draft' and visibility <> 'private' and drafted_at <= ${new Date(now.getTime() - ESCALATE_AFTER_DAYS * DAY_MS)}))::int`,

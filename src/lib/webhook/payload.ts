@@ -23,7 +23,7 @@ export interface NoteForWebhook {
   team: { name: string; directoryId: string | null } | null;
   ownerName: string;
   documentType: string | null;
-  project: string | null;
+  topicArea: string | null;
   tags: string[];
   sourceUrl: string | null;
   doi: string | null;
@@ -48,7 +48,7 @@ export interface NoteChangedPayload {
     team: { name: string; directory_id: string | null } | null;
     owner: string;
     document_type: string | null;
-    project: string | null;
+    topic_area: string | null;
     tags: string[];
     source_url: string | null;
     doi: string | null;
@@ -73,7 +73,7 @@ export function noteText(note: NoteForWebhook): string {
   if (note.citation) parts.push("", `Citation: ${note.citation}`);
   if (note.sourceUrl) parts.push(`Source: ${note.sourceUrl}`);
   if (note.doi) parts.push(`DOI: ${note.doi}`);
-  parts.push("", `Summary drafted by an AI model and confirmed by ${note.ownerName}${note.checked ? ", checked by a steward" : ""}. Check details against the source.`);
+  parts.push("", `Summary drafted by an AI model and confirmed by ${note.ownerName}${note.checked ? ", checked by a maintainer" : ""}. Check details against the source.`);
   return parts.join("\n");
 }
 
@@ -95,7 +95,7 @@ export function noteChangedPayload(note: NoteForWebhook, baseUrl: string): NoteC
       team: note.team ? { name: note.team.name, directory_id: note.team.directoryId } : null,
       owner: note.ownerName,
       document_type: note.documentType,
-      project: note.project,
+      topic_area: note.topicArea,
       tags: note.tags,
       source_url: note.sourceUrl,
       doi: note.doi,

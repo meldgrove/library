@@ -45,14 +45,14 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { activeNavKey, ADMIN_NAV, MAIN_NAV, UPLOAD, type NavKey } from "@/lib/navigation";
+import { activeNavKey, ADMIN_NAV, MAIN_NAV, MAINTENANCE_NAV, UPLOAD, type NavKey } from "@/lib/navigation";
 
 const ICONS: Record<NavKey, LucideIcon> = {
   upload: FileUp,
   library: Library,
   uploads: Inbox,
   review: ClipboardCheck,
-  steward: ShieldCheck,
+  maintenance: ShieldCheck,
   admin: Settings,
   taxonomy: Tags,
   people: Users,
@@ -61,13 +61,16 @@ const ICONS: Record<NavKey, LucideIcon> = {
 
 interface AppSidebarProps {
   user: { name: string; email: string | null };
-  isAdmin: boolean;
+  /** Shows the Maintenance group: maintainers and admins. */
+  canMaintain: boolean;
+  /** Shows the Administration group: admins. */
+  canAdminister: boolean;
   /** Shown as a badge next to an item: things waiting for the person. */
   badges?: Partial<Record<NavKey, number>>;
 }
 
 /** The app's navigation, collapsible to icons; a sheet on small screens. */
-export function AppSidebar({ user, isAdmin, badges = {} }: AppSidebarProps) {
+export function AppSidebar({ user, canMaintain, canAdminister, badges = {} }: AppSidebarProps) {
   const active = activeNavKey(usePathname());
   const { isMobile, setOpenMobile } = useSidebar();
   // On small screens the sidebar is a sheet that stays open after navigating.
@@ -145,29 +148,8 @@ export function AppSidebar({ user, isAdmin, badges = {} }: AppSidebarProps) {
             </SidebarGroupContent>
           </SidebarGroup>
 
-          {isAdmin ? (
-            <SidebarGroup>
-              <SidebarGroupLabel>Administration</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {ADMIN_NAV.map((item) => {
-                    const Icon = ICONS[item.key];
-                    return (
-                      <SidebarMenuItem key={item.key}>
-                        <SidebarMenuButton asChild tooltip={item.label} isActive={active === item.key}>
-                          <Link href={item.href} onClick={closeOnMobile} aria-current={active === item.key ? "page" : undefined}>
-                            <Icon aria-hidden="true" />
-                            <span>{item.label}</span>
-                          </Link>
-                        </SidebarMenuButton>
-                        <NavBadge count={badges[item.key]} />
-                      </SidebarMenuItem>
-                    );
-                  })}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          ) : null}
+          {canMaintain ? <NavGroup label="Maintenance" items={MAINTENANCE_NAV} active={active} badges={badges} onNavigate={closeOnMobile} /> : null}
+          {canAdminister ? <NavGroup label="Administration" items={ADMIN_NAV} active={active} badges={badges} onNavigate={closeOnMobile} /> : null}
         </SidebarContent>
 
         <SidebarFooter>
@@ -177,6 +159,45 @@ export function AppSidebar({ user, isAdmin, badges = {} }: AppSidebarProps) {
       </Sidebar>
       <NoteSearch open={searchOpen} onOpenChange={setSearchOpen} />
     </>
+  );
+}
+
+/** A labeled group of sidebar items, such as the maintainers' pages. */
+function NavGroup({
+  label,
+  items,
+  active,
+  badges,
+  onNavigate,
+}: {
+  label: string;
+  items: readonly { key: NavKey; href: string; label: string }[];
+  active: NavKey | undefined;
+  badges: Partial<Record<NavKey, number>>;
+  onNavigate: () => void;
+}) {
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel>{label}</SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu>
+          {items.map((item) => {
+            const Icon = ICONS[item.key];
+            return (
+              <SidebarMenuItem key={item.key}>
+                <SidebarMenuButton asChild tooltip={item.label} isActive={active === item.key}>
+                  <Link href={item.href} onClick={onNavigate} aria-current={active === item.key ? "page" : undefined}>
+                    <Icon aria-hidden="true" />
+                    <span>{item.label}</span>
+                  </Link>
+                </SidebarMenuButton>
+                <NavBadge count={badges[item.key]} />
+              </SidebarMenuItem>
+            );
+          })}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
   );
 }
 

@@ -5,10 +5,10 @@ import type { FormState } from "@/lib/form-state";
 import { describedBy, Field, FormError } from "@/components/form/field";
 import { useFormAction } from "@/components/form/use-form-action";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Field as FieldRoot, FieldError, FieldLabel } from "@/components/ui/field";
+import { FieldDescription, FieldError } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { ROLE_HELP, ROLE_LABELS, ROLES, type Role } from "@/lib/auth/roles";
 import { PERSON_NAME_MAX } from "@/lib/directory/schemas";
 
 type Action = (state: FormState, formData: FormData) => Promise<FormState>;
@@ -59,7 +59,7 @@ export function InvitePersonForm({ action, teams }: { action: Action; teams: Tea
   return (
     <form ref={form} onSubmit={onSubmit} className="flex flex-col gap-4">
       <FormError message={state.formError} />
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Field id="invite-email" label="Email" required error={errors.email}>
           <Input id="invite-email" name="email" type="email" required autoComplete="off" aria-invalid={errors.email ? true : undefined} aria-describedby={describedBy("invite-email", errors.email)} />
         </Field>
@@ -69,16 +69,53 @@ export function InvitePersonForm({ action, teams }: { action: Action; teams: Tea
         <Field id="invite-team" label="Team" error={errors.teamId}>
           <TeamSelect id="invite-team" teams={teams} error={errors.teamId} />
         </Field>
+        <Field id="invite-role" label="Role" required error={errors.role}>
+          <RoleSelect id="invite-role" error={errors.role} />
+        </Field>
       </div>
-      <FieldRoot orientation="horizontal" className="items-center">
-        <Checkbox id="invite-admin" name="isAdmin" />
-        <FieldLabel htmlFor="invite-admin" className="font-normal">
-          Admin: manages people, teams, tags, and the default periods
-        </FieldLabel>
-      </FieldRoot>
+      <FieldDescription>{ROLE_HELP}</FieldDescription>
       <Button type="submit" disabled={pending} className="self-start">
         Invite
       </Button>
+    </form>
+  );
+}
+
+function RoleSelect({ id, defaultValue = "member", error, label }: { id: string; defaultValue?: Role; error?: string; label?: string }) {
+  return (
+    <NativeSelect
+      id={id}
+      name="role"
+      defaultValue={defaultValue}
+      aria-label={label}
+      aria-invalid={error ? true : undefined}
+      aria-describedby={describedBy(id, error)}
+      wrapperClassName="w-full"
+    >
+      {ROLES.map((role) => (
+        <NativeSelectOption key={role} value={role}>
+          {ROLE_LABELS[role]}
+        </NativeSelectOption>
+      ))}
+    </NativeSelect>
+  );
+}
+
+/** A person's role, changed in their table row. */
+export function RoleForm({ action, id, role }: { action: Action; id: string; role: Role }) {
+  const { state, onSubmit, pending } = useFormAction(action);
+  const error = state.fieldErrors?.role ?? state.formError;
+  return (
+    <form onSubmit={onSubmit} className="flex flex-col gap-1">
+      <div className="flex gap-2">
+        <div className="w-36">
+          <RoleSelect id={`${id}-role`} defaultValue={role} error={error} label="Role" />
+        </div>
+        <Button type="submit" variant="outline" size="sm" disabled={pending} className="self-center">
+          Save
+        </Button>
+      </div>
+      {error ? <FieldError id={`${id}-role-error`}>{error}</FieldError> : null}
     </form>
   );
 }

@@ -136,6 +136,7 @@ const directorySchema = z.discriminatedUnion("DIRECTORY", [
     KEYCLOAK_CLIENT_SECRET: requiredString(),
     KEYCLOAK_ACCESS_GROUP: required(groupPath),
     KEYCLOAK_ADMIN_GROUP: required(groupPath),
+    KEYCLOAK_MAINTAINER_GROUP: optional(groupPath),
     KEYCLOAK_TEAMS_GROUP: required(groupPath),
   }),
 ]);

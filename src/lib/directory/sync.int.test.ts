@@ -69,7 +69,7 @@ describe("syncDirectory", () => {
           directoryPerson({ externalId: "p1" }),
           directoryPerson({
             externalId: "p2",
-            isAdmin: true,
+            role: "admin",
             displayName: "Ada Admin",
             teamExternalId: null,
           }),
@@ -79,8 +79,8 @@ describe("syncDirectory", () => {
 
     expect(result).toMatchObject({ status: "succeeded", peopleReceived: 2, accessGranted: 2, accessRemoved: 0 });
     const rows = await people();
-    expect(rows.get("p1")).toMatchObject({ hasAccess: true, isAdmin: false, oidcSubject: "sub-p1" });
-    expect(rows.get("p2")).toMatchObject({ hasAccess: true, isAdmin: true, displayName: "Ada Admin", teamId: null });
+    expect(rows.get("p1")).toMatchObject({ hasAccess: true, role: "member", oidcSubject: "sub-p1" });
+    expect(rows.get("p2")).toMatchObject({ hasAccess: true, role: "admin", displayName: "Ada Admin", teamId: null });
 
     const [techTeam] = await db.select().from(team).where(eq(team.externalId, TEAM_TECH.externalId));
     expect(rows.get("p1")?.teamId).toBe(techTeam?.id);
@@ -91,7 +91,7 @@ describe("syncDirectory", () => {
   });
 
   it("removes access from people who are no longer listed, keeps their row, and ends their sessions", async () => {
-    await sync(adapterReturning(snapshot([directoryPerson({ externalId: "p1" }), directoryPerson({ externalId: "p2", isAdmin: true })])));
+    await sync(adapterReturning(snapshot([directoryPerson({ externalId: "p1" }), directoryPerson({ externalId: "p2", role: "admin" })])));
     await loginSession("sub-p1", "token-p1");
     await loginSession("sub-p2", "token-p2a");
     await loginSession("sub-p2", "token-p2b");
@@ -100,7 +100,7 @@ describe("syncDirectory", () => {
 
     expect(result).toMatchObject({ status: "succeeded", accessGranted: 0, accessRemoved: 1, sessionsEnded: 2 });
     const rows = await people();
-    expect(rows.get("p2")).toMatchObject({ hasAccess: false, isAdmin: false, displayName: "Person p2" });
+    expect(rows.get("p2")).toMatchObject({ hasAccess: false, role: "member", displayName: "Person p2" });
     const sessions = await db.select({ token: authSession.token }).from(authSession);
     expect(sessions.map((s) => s.token)).toEqual(["token-p1"]);
   });
@@ -116,7 +116,7 @@ describe("syncDirectory", () => {
   it("updates team, admin flag, and name, and keeps access_changed_at while access is unchanged", async () => {
     let time = new Date("2026-11-04T09:00:00Z");
     const now = () => time;
-    await sync(adapterReturning(snapshot([directoryPerson({ externalId: "p1", isAdmin: true })])), { now });
+    await sync(adapterReturning(snapshot([directoryPerson({ externalId: "p1", role: "admin" })])), { now });
     const before = (await people()).get("p1");
 
     time = new Date("2026-11-04T09:15:00Z");
@@ -126,7 +126,7 @@ describe("syncDirectory", () => {
           directoryPerson({
             externalId: "p1",
             displayName: "Renamed",
-            isAdmin: false,
+            role: "member",
             teamExternalId: TEAM_OPS.externalId,
           }),
         ]),
@@ -136,7 +136,7 @@ describe("syncDirectory", () => {
 
     const after = (await people()).get("p1");
     const [opsTeam] = await db.select().from(team).where(eq(team.externalId, TEAM_OPS.externalId));
-    expect(after).toMatchObject({ displayName: "Renamed", isAdmin: false, teamId: opsTeam?.id });
+    expect(after).toMatchObject({ displayName: "Renamed", role: "member", teamId: opsTeam?.id });
     expect(after?.accessChangedAt).toEqual(before?.accessChangedAt);
     expect(after?.lastSeenInDirectoryAt).toEqual(new Date("2026-11-04T09:15:00Z"));
   });

@@ -23,7 +23,7 @@ export function connectTestDatabase(): TestDatabase {
         truncate table auth_session, auth_account, auth_verification, auth_user,
           notification_delivery, app_setting, audit_event, rate_limit,
           tag_proposal, note_version, note_reason, note_tag, submission, note, source_text, source,
-          storage_cleanup, webhook_sync, slack_event, email_message, tag_subscription, tag, tag_cluster, document_type, project,
+          storage_cleanup, webhook_sync, slack_event, email_message, tag_subscription, tag, tag_cluster, document_type, topic_area,
           person, team, directory_sync_run, worker_heartbeat
         restart identity cascade
       `);

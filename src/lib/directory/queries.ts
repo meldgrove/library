@@ -1,4 +1,4 @@
-import { and, count, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNotNull, ne, sql } from "drizzle-orm";
 import type { Database, Transaction } from "@/lib/db/client";
 import { directorySyncRun, person, team, workerHeartbeat } from "@/lib/db/schema";
 import { OIDC_PROVIDER_ID } from "./sessions";
@@ -16,13 +16,13 @@ export async function findPersonBySubject(db: Database | Transaction, subject: s
 const WORKER_STALE_AFTER_MS = 2 * 60_000;
 
 export async function getDirectoryStatus(db: Database, now: Date = new Date()) {
-  const [recentRuns, [withAccess], admins, [teams], [heartbeat]] = await Promise.all([
+  const [recentRuns, [withAccess], roles, [teams], [heartbeat]] = await Promise.all([
     db.select().from(directorySyncRun).orderBy(desc(directorySyncRun.startedAt)).limit(10),
     db.select({ value: count() }).from(person).where(eq(person.hasAccess, true)),
     db
-      .select({ id: person.id, displayName: person.displayName, workEmail: person.workEmail })
+      .select({ id: person.id, displayName: person.displayName, workEmail: person.workEmail, role: person.role })
       .from(person)
-      .where(and(eq(person.hasAccess, true), eq(person.isAdmin, true)))
+      .where(and(eq(person.hasAccess, true), ne(person.role, "member")))
       .orderBy(person.displayName),
     db.select({ value: count() }).from(team).where(eq(team.isActive, true)),
     db.select().from(workerHeartbeat).where(isNotNull(workerHeartbeat.beatAt)).orderBy(desc(workerHeartbeat.beatAt)).limit(1),
@@ -31,7 +31,9 @@ export async function getDirectoryStatus(db: Database, now: Date = new Date()) {
     recentRuns,
     lastSuccessfulRun: recentRuns.find((run) => run.status === "succeeded"),
     peopleWithAccess: withAccess?.value ?? 0,
-    admins,
+    /** Admins and maintainers with access. */
+    admins: roles.filter((p) => p.role === "admin"),
+    maintainers: roles.filter((p) => p.role === "maintainer"),
     activeTeams: teams?.value ?? 0,
     workerHeartbeat: heartbeat,
     workerHealthy: heartbeat !== undefined && now.getTime() - heartbeat.beatAt.getTime() < WORKER_STALE_AFTER_MS,
@@ -48,7 +50,7 @@ export async function listPeople(db: Database) {
       teamId: person.teamId,
       teamName: team.name,
       hasAccess: person.hasAccess,
-      isAdmin: person.isAdmin,
+      role: person.role,
       /** False while an invitation waits for the first login. */
       hasLoggedIn: isNotNull(person.oidcSubject),
       accessChangedAt: person.accessChangedAt,

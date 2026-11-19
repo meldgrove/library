@@ -54,12 +54,15 @@ filesystem or S3 (`@aws-sdk/client-s3`). AI model: Anthropic's Claude API
 
 ## Rules
 
-- Every page, Server Action, and route handler calls `requireUser()` or
-  `requireAdmin()` from `src/lib/auth/session.ts` (route handlers:
-  `getCurrentPerson()`). Layouts do not re-render on navigation, so a check in
-  a layout is not enough. Admins are the library's stewards. The one
-  exception is `/api/slack/events`: it has no session and accepts only
-  requests Slack signed (`src/lib/slack/signature.ts`).
+- Every page, Server Action, and route handler calls `requireUser()`,
+  `requireMaintainer()`, or `requireAdmin()` from `src/lib/auth/session.ts`
+  (route handlers: `getCurrentPerson()`). Layouts do not re-render on
+  navigation, so a check in a layout is not enough. Roles are member,
+  maintainer (looks after the content), and admin (runs the app), each with
+  the rights of the one before (`src/lib/auth/roles.ts`); commands check
+  `canMaintain` or `canAdminister`. The one exception is `/api/slack/events`:
+  it has no session and accepts only requests Slack signed
+  (`src/lib/slack/signature.ts`).
 - Who sees a note is decided only in `src/lib/library/access.ts`:
   `canSeeNote` for pages, `visibleNotes` for SQL. A test checks they agree.
   Pages answer 404 for notes a person may not see.
@@ -118,7 +121,7 @@ npm ci
 npm run db:migrate
 npm run directory:sync                     # the Keycloak test users into the database
 npm run dev:seed                           # optional: example notes (dev/seed-demo.ts)
-npm run dev                                # http://localhost:3000, users erika / adam / olga, password library-dev
+npm run dev                                # http://localhost:3000, users erika / maya / adam / olga, password library-dev
 npm run worker                             # pg-boss worker in a second terminal
 
 npm run lint

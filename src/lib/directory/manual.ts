@@ -62,7 +62,7 @@ async function linkFirstLogin(db: Database, { userId, subject, trustEmail, now }
     const [admin] = await tx
       .select({ id: person.id })
       .from(person)
-      .where(and(eq(person.isAdmin, true), eq(person.hasAccess, true)))
+      .where(and(eq(person.role, "admin"), eq(person.hasAccess, true)))
       .limit(1);
     if (admin) return false;
     const [created] = await tx
@@ -72,7 +72,7 @@ async function linkFirstLogin(db: Database, { userId, subject, trustEmail, now }
         displayName: name || email,
         workEmail: email,
         hasAccess: true,
-        isAdmin: true,
+        role: "admin",
         accessChangedAt: now,
       })
       .returning({ id: person.id });

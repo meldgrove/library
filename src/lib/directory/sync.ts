@@ -39,8 +39,8 @@ const SYNC_LOCK_KEY = 7_261_001;
  * Pulls people and teams from the external directory into the local
  * projection.
  *
- * - People in the snapshot have access; their admin flag and team come from
- *   the directory.
+ * - People in the snapshot have access; their role and team come from the
+ *   directory.
  * - People missing from the snapshot lose access and their sessions end.
  *   Their rows stay: the library never deletes people.
  * - A failed fetch, or a snapshot without people or teams, keeps the last
@@ -192,7 +192,7 @@ async function applySnapshot(tx: Transaction, snapshot: DirectorySnapshot, at: D
   if (movedUnlisted.length > 0) {
     await tx
       .update(person)
-      .set({ oidcSubject: null, hasAccess: false, isAdmin: false, accessChangedAt: at, updatedAt: at })
+      .set({ oidcSubject: null, hasAccess: false, role: "member", accessChangedAt: at, updatedAt: at })
       .where(inArray(person.id, movedUnlisted));
   }
 
@@ -206,7 +206,7 @@ async function applySnapshot(tx: Transaction, snapshot: DirectorySnapshot, at: D
         workEmail: p.email?.trim() || null,
         teamId: p.teamExternalId ? (teamIdByExternalId.get(p.teamExternalId) ?? null) : null,
         hasAccess: true,
-        isAdmin: p.isAdmin,
+        role: p.role,
         accessChangedAt: at,
         lastSeenInDirectoryAt: at,
       })),
@@ -222,7 +222,7 @@ async function applySnapshot(tx: Transaction, snapshot: DirectorySnapshot, at: D
         slackLookupFailedAt: sql`case when ${person.workEmail} is distinct from excluded.work_email then null else ${person.slackLookupFailedAt} end`,
         teamId: sql`excluded.team_id`,
         hasAccess: sql`true`,
-        isAdmin: sql`excluded.is_admin`,
+        role: sql`excluded.role`,
         accessChangedAt: sql`case when ${person.hasAccess} then ${person.accessChangedAt} else excluded.access_changed_at end`,
         lastSeenInDirectoryAt: sql`excluded.last_seen_in_directory_at`,
         updatedAt: at,
@@ -233,7 +233,7 @@ async function applySnapshot(tx: Transaction, snapshot: DirectorySnapshot, at: D
   // directory was used. Their rows, names, and history stay.
   const removed = await tx
     .update(person)
-    .set({ hasAccess: false, isAdmin: false, accessChangedAt: at, updatedAt: at })
+    .set({ hasAccess: false, role: "member", accessChangedAt: at, updatedAt: at })
     .where(
       and(
         eq(person.hasAccess, true),

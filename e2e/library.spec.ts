@@ -50,15 +50,15 @@ test("a PDF becomes a draft note the uploader can open", async ({ page }) => {
   expect((await deliveries(number)).map((d) => [d.event, d.recipient])).toContainEqual(["draft_ready", "Erika Employee"]);
 });
 
-test("a steward can open a draft that is not private", async ({ page }) => {
+test("a maintainer can open a draft that is not private", async ({ page }) => {
   await signIn(page, "erika");
   await page.goto("/uploads");
   const href = await page.getByRole("link", { name: /LIB-\d+/ }).first().getAttribute("href");
   await page.getByTestId("current-user").click();
   await page.getByRole("menuitem", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/login$/);
-  await signIn(page, "adam");
+  await signIn(page, "maya");
   await expect(page.getByRole("heading", { name: "Library", level: 1 })).toBeVisible();
-  // Stewards see drafts that are not private.
+  // Maintainers see drafts that are not private.
   expect((await page.goto(href!))?.status()).toBe(200);
 });

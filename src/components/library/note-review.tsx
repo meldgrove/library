@@ -57,13 +57,13 @@ export function NoteReview({
               citation: note.citation,
               language: note.language ?? "",
               documentTypeId: note.documentTypeId ?? "",
-              projectId: note.projectId ?? "",
+              topicAreaId: note.topicAreaId ?? "",
               tagIds: detail.tags.map((t) => t.id),
               visibility: note.visibility,
             }}
             uncertainFields={note.status === "draft" ? note.uncertainFields : []}
             documentTypes={options.types}
-            projects={options.projects}
+            topicAreas={options.topicAreas}
             tagGroups={options.tagGroups}
             teamName={detail.teamName}
             visibilityDescriptions={VISIBILITY_DESCRIPTIONS}

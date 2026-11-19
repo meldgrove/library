@@ -15,6 +15,27 @@
       "when": 1794551382076,
       "tag": "0001_audit_append_only",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795076510004,
+      "tag": "0002_remove_projects",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1795076522824,
+      "tag": "0003_topic_areas",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795077505271,
+      "tag": "0004_person_roles",
+      "breakpoints": true
     }
   ]
 }

@@ -1,3 +1,4 @@
+import { canAdminister } from "@/lib/auth/roles";
 import { getCurrentPerson } from "@/lib/auth/session";
 import { getAuthConfig } from "@/lib/config";
 import type { PersonRow } from "@/lib/directory/queries";
@@ -16,7 +17,7 @@ const MAX_BODY_BYTES = 1_024;
  */
 export async function handleUpdatesRoute(request: Request, run: (admin: PersonRow) => Promise<UpdatesResult>): Promise<Response> {
   const person = await getCurrentPerson();
-  if (!person?.isAdmin) return Response.json({ error: "Not found." }, { status: 404, headers: NO_STORE });
+  if (!person || !canAdminister(person.role)) return Response.json({ error: "Not found." }, { status: 404, headers: NO_STORE });
   if (request.method !== "GET" && request.headers.get("origin") !== new URL(getAuthConfig().LIBRARY_BASE_URL).origin) {
     return Response.json({ error: "This request came from another site." }, { status: 403, headers: NO_STORE });
   }

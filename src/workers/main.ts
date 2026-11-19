@@ -107,7 +107,7 @@ async function main() {
     await retrySlackLookups(getDb(), transports, new Date());
   });
 
-  // Review reminders: a week after the draft to its owner, 30 days to the stewards.
+  // Review reminders: a week after the draft to its owner, 30 days to the maintainers.
   await boss.createQueue(QUEUES.reviewReminders, { retryLimit: 3, retryDelay: 300, expireInSeconds: 600 });
   await boss.schedule(QUEUES.reviewReminders, REVIEW_REMINDERS_CRON, {}, { tz: SERVER_TIME_ZONE });
   await boss.work(QUEUES.reviewReminders, async () => {

@@ -9,7 +9,7 @@ import { noteFormSchema } from "@/lib/library/note-input";
 import { checkNote, deleteNote, discardNote, saveNote } from "@/lib/library/review";
 import { getStorage } from "@/lib/storage";
 
-/* A note's review and the steward's actions on it. The commands check who may act. */
+/* A note's review and the maintainers' actions on it. The commands check who may act. */
 
 const noFields = z.object({});
 const deleteSchema = z.object({ reason: z.string().trim().min(3, "Say why the note is deleted.").max(300, "At most 300 characters.") });

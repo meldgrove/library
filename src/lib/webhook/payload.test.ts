@@ -16,7 +16,7 @@ const NOTE: NoteForWebhook = {
   team: { name: "Climate", directoryId: "kc-group-1" },
   ownerName: "Erika Employee",
   documentType: "Study",
-  project: null,
+  topicArea: null,
   tags: ["Climate", "Funding"],
   sourceUrl: null,
   doi: "10.1234/x",

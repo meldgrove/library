@@ -10,7 +10,7 @@ import {
   renameTeam,
   savePreferences,
   setPersonAccess,
-  setPersonAdmin,
+  setPersonRole,
   setTeamActive,
   updatePerson,
 } from "./manage";
@@ -52,13 +52,13 @@ async function personRow(id: string) {
 
 describe("people of the manual directory", () => {
   it("invites a person with access, a lower-cased email, and an audit event", async () => {
-    const created = await invitePerson(db, MANUAL, amy, invite({ isAdmin: "on" }));
+    const created = await invitePerson(db, MANUAL, amy, invite({ role: "admin" }));
     expect(await personRow(created.id)).toMatchObject({
       displayName: "New Person",
       workEmail: "new.person@example.org",
       teamId: seed.teams.ops.id,
       hasAccess: true,
-      isAdmin: true,
+      role: "admin",
       oidcSubject: null,
       externalId: null,
     });
@@ -83,7 +83,7 @@ describe("people of the manual directory", () => {
   });
 
   it("takes access away, ends the sessions, and gives it back without admin rights", async () => {
-    await setPersonAdmin(db, MANUAL, amy, seed.people.dan.id, true);
+    await setPersonRole(db, MANUAL, amy, seed.people.dan.id, "admin");
     await db.insert(authUser).values({ id: "u-dan", name: "Dan", email: "dan@example.org" });
     await db.insert(authAccount).values({ id: "a-dan", accountId: "sub-dan", providerId: "oidc", userId: "u-dan" });
     const expiresAt = new Date(Date.now() + 86_400_000);
@@ -92,32 +92,32 @@ describe("people of the manual directory", () => {
     await db.insert(authSession).values({ id: "s-other", token: "t-other", userId: "u-dan", oidcSubject: "sub-other", expiresAt });
 
     await setPersonAccess(db, MANUAL, amy, seed.people.dan.id, false);
-    expect(await personRow(seed.people.dan.id)).toMatchObject({ hasAccess: false, isAdmin: false });
+    expect(await personRow(seed.people.dan.id)).toMatchObject({ hasAccess: false, role: "member" });
     expect((await db.select().from(authSession)).map((s) => s.id)).toEqual(["s-other"]);
 
     await setPersonAccess(db, MANUAL, amy, seed.people.dan.id, true);
-    expect(await personRow(seed.people.dan.id)).toMatchObject({ hasAccess: true, isAdmin: false });
+    expect(await personRow(seed.people.dan.id)).toMatchObject({ hasAccess: true, role: "member" });
     const actions = (await db.select().from(auditEvent)).map((e) => e.action);
-    expect(actions).toEqual(["person.admin_granted", "person.access_revoked", "person.access_granted"]);
+    expect(actions).toEqual(["person.role_changed", "person.access_revoked", "person.access_granted"]);
   });
 
   it("keeps at least one admin, and nobody can lock themselves out", async () => {
     expect((await rejection(setPersonAccess(db, MANUAL, amy, amy.personId, false))).message).toBe("You cannot take away your own access.");
-    expect((await rejection(setPersonAdmin(db, MANUAL, amy, amy.personId, false))).message).toMatch(/last admin/);
-    await setPersonAdmin(db, MANUAL, amy, seed.people.dan.id, true);
-    await setPersonAdmin(db, MANUAL, amy, amy.personId, false);
-    expect(await personRow(amy.personId)).toMatchObject({ isAdmin: false, hasAccess: true });
+    expect((await rejection(setPersonRole(db, MANUAL, amy, amy.personId, "member"))).message).toMatch(/last admin/);
+    await setPersonRole(db, MANUAL, amy, seed.people.dan.id, "admin");
+    await setPersonRole(db, MANUAL, amy, amy.personId, "member");
+    expect(await personRow(amy.personId)).toMatchObject({ role: "member", hasAccess: true });
   });
 
   it("runs changes that may remove the last admin one after another", async () => {
-    await setPersonAdmin(db, MANUAL, amy, seed.people.dan.id, true);
+    await setPersonRole(db, MANUAL, amy, seed.people.dan.id, "admin");
     // Another transaction is checking the admin count right now.
     const other = await testDb.pool.connect();
     try {
       await other.query("begin");
       await other.query("select pg_advisory_xact_lock(hashtext('library:admins'))");
       let finished = false;
-      const demotion = setPersonAdmin(db, MANUAL, amy, amy.personId, false).then(() => {
+      const demotion = setPersonRole(db, MANUAL, amy, amy.personId, "member").then(() => {
         finished = true;
       });
       await new Promise((resolve) => setTimeout(resolve, 300));
@@ -130,8 +130,17 @@ describe("people of the manual directory", () => {
     }
   });
 
+  it("makes a person a maintainer, which lets them change no people", async () => {
+    await setPersonRole(db, MANUAL, amy, seed.people.dan.id, "maintainer");
+    expect(await personRow(seed.people.dan.id)).toMatchObject({ role: "maintainer" });
+    const [event] = await db.select().from(auditEvent);
+    expect(event).toMatchObject({ action: "person.role_changed", payload: { personId: seed.people.dan.id, name: "Dan Decider", from: "member", to: "maintainer" } });
+    const dan = { personId: seed.people.dan.id, role: "maintainer" as const };
+    expect((await rejection(setPersonRole(db, MANUAL, dan, seed.people.ada.id, "maintainer"))).code).toBe("forbidden");
+  });
+
   it("makes only people with access admins", async () => {
-    expect((await rejection(setPersonAdmin(db, MANUAL, amy, seed.people.lea.id, true))).message).toBe("Give this person access first.");
+    expect((await rejection(setPersonRole(db, MANUAL, amy, seed.people.lea.id, "admin"))).message).toBe("Give this person access first.");
   });
 
   it("changes nobody while people and teams come from Keycloak", async () => {

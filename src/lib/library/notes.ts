@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
-import { documentType, note, noteReason, noteTag, person, project, source, tag, tagCluster, team } from "@/lib/db/schema";
+import { documentType, note, noteReason, noteTag, person, source, tag, tagCluster, team, topicArea } from "@/lib/db/schema";
 import { visibleNotes, type Viewer } from "./access";
 
 /* Reading notes: one note with everything its page shows, and lists for browsing and search. */
@@ -12,7 +12,7 @@ export async function getNoteByNumber(db: Database, number: number) {
       ownerName: person.displayName,
       teamName: team.name,
       documentTypeName: documentType.name,
-      projectName: project.name,
+      topicAreaName: topicArea.name,
       source: {
         id: source.id,
         kind: source.kind,
@@ -31,7 +31,7 @@ export async function getNoteByNumber(db: Database, number: number) {
     .innerJoin(source, eq(source.id, note.sourceId))
     .leftJoin(team, eq(team.id, note.teamId))
     .leftJoin(documentType, eq(documentType.id, note.documentTypeId))
-    .leftJoin(project, eq(project.id, note.projectId))
+    .leftJoin(topicArea, eq(topicArea.id, note.topicAreaId))
     .where(eq(note.number, number));
   if (!row) return undefined;
   const [tags, reasons] = await Promise.all([
@@ -58,7 +58,7 @@ export interface NoteFilters {
   q?: string;
   tagId?: string;
   documentTypeId?: string;
-  projectId?: string;
+  topicAreaId?: string;
   teamId?: string;
   ownerId?: string;
   /** The note with this number (LIB-<number>). */
@@ -77,7 +77,7 @@ export async function listNotes(db: Database, viewer: Viewer, filters: NoteFilte
   if (tsQuery) conditions.push(sql`${note.searchVector} @@ (${tsQuery})`);
   if (filters.tagId) conditions.push(sql`exists (select 1 from note_tag where note_tag.note_id = ${note.id} and note_tag.tag_id = ${filters.tagId})`);
   if (filters.documentTypeId) conditions.push(eq(note.documentTypeId, filters.documentTypeId));
-  if (filters.projectId) conditions.push(eq(note.projectId, filters.projectId));
+  if (filters.topicAreaId) conditions.push(eq(note.topicAreaId, filters.topicAreaId));
   if (filters.teamId) conditions.push(eq(note.teamId, filters.teamId));
   if (filters.ownerId) conditions.push(eq(note.ownerId, filters.ownerId));
   if (filters.number !== undefined) conditions.push(eq(note.number, filters.number));
@@ -122,31 +122,31 @@ export async function listNotes(db: Database, viewer: Viewer, filters: NoteFilte
   };
 }
 
-/** The values the filters offer: active tags, document types, projects, and teams. */
+/** The values the filters offer: active tags, document types, topic areas, and teams. */
 export async function filterOptions(db: Database) {
-  const [tags, types, projects, teams] = await Promise.all([
+  const [tags, types, topicAreas, teams] = await Promise.all([
     db.select({ id: tag.id, name: tag.name }).from(tag).where(eq(tag.isActive, true)).orderBy(sql`lower(${tag.name})`),
     db.select({ id: documentType.id, name: documentType.name }).from(documentType).where(eq(documentType.isActive, true)).orderBy(sql`lower(${documentType.name})`),
-    db.select({ id: project.id, name: project.name }).from(project).where(eq(project.isActive, true)).orderBy(sql`lower(${project.name})`),
+    db.select({ id: topicArea.id, name: topicArea.name }).from(topicArea).where(eq(topicArea.isActive, true)).orderBy(sql`lower(${topicArea.name})`),
     db.select({ id: team.id, name: team.name }).from(team).where(eq(team.isActive, true)).orderBy(sql`lower(${team.name})`),
   ]);
-  return { tags, types, projects, teams };
+  return { tags, types, topicAreas, teams };
 }
 
 /** What the review form offers: active entries, plus the note's current ones even when inactive. */
 export async function reviewOptions(db: Database, detail: NoteDetail) {
   const currentTagIds = detail.tags.map((t) => t.id);
-  const [types, projects, tags] = await Promise.all([
+  const [types, topicAreas, tags] = await Promise.all([
     db
       .select({ id: documentType.id, name: documentType.name })
       .from(documentType)
       .where(or(eq(documentType.isActive, true), detail.note.documentTypeId ? eq(documentType.id, detail.note.documentTypeId) : sql`false`))
       .orderBy(sql`lower(${documentType.name})`),
     db
-      .select({ id: project.id, name: project.name })
-      .from(project)
-      .where(or(eq(project.isActive, true), detail.note.projectId ? eq(project.id, detail.note.projectId) : sql`false`))
-      .orderBy(sql`lower(${project.name})`),
+      .select({ id: topicArea.id, name: topicArea.name })
+      .from(topicArea)
+      .where(or(eq(topicArea.isActive, true), detail.note.topicAreaId ? eq(topicArea.id, detail.note.topicAreaId) : sql`false`))
+      .orderBy(sql`lower(${topicArea.name})`),
     db
       .select({ id: tag.id, name: tag.name, cluster: tagCluster.name })
       .from(tag)
@@ -159,5 +159,5 @@ export async function reviewOptions(db: Database, detail: NoteDetail) {
     const cluster = t.cluster ?? "Other";
     groups.set(cluster, [...(groups.get(cluster) ?? []), { id: t.id, name: t.name }]);
   }
-  return { types, projects, tagGroups: [...groups].map(([cluster, groupTags]) => ({ cluster, tags: groupTags })) };
+  return { types, topicAreas, tagGroups: [...groups].map(([cluster, groupTags]) => ({ cluster, tags: groupTags })) };
 }

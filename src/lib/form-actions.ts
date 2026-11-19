@@ -32,7 +32,7 @@ export const boundValues = {
 export const INVALID_BOUND_VALUES: FormState = { formError: "This form is out of date. Reload the page and try again." };
 
 export function actorOf(user: CurrentUser): Actor {
-  return { personId: user.person.id, isAdmin: user.person.isAdmin };
+  return { personId: user.person.id, role: user.person.role };
 }
 
 /**

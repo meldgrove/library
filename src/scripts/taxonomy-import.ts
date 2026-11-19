@@ -4,7 +4,7 @@ import { getDb, getPool } from "@/lib/db/client";
 import { importTaxonomy, taxonomyFileSchema } from "@/lib/library/taxonomy";
 import { logger } from "@/lib/logger";
 
-// Adds the clusters, tags, document types, and projects of a JSON file that
+// Adds the clusters, tags, document types, and topic areas of a JSON file that
 // are missing: `npm run taxonomy:import -- taxonomy.json`, or in the container
 // `node dist/taxonomy-import.mjs /path/taxonomy.json`. Changes and removes
 // nothing. The format is in docs/taxonomy.md.

@@ -9,7 +9,8 @@ import { DirectoryError, type DirectoryAdapter, type DirectoryPerson, type Direc
  *
  * - Members of the access group (and of its subgroups) have access.
  * - Members of the admin group (and of its subgroups) are admins, and have
- *   access too.
+ *   access too. Members of the maintainer group are maintainers, and have
+ *   access too, unless they are admins.
  * - Every direct subgroup of the teams group is a team. A person's team is
  *   the first team group, by name, that lists them (directly or through a
  *   subgroup).
@@ -23,6 +24,7 @@ export interface KeycloakDirectoryOptions {
   clientSecret: string;
   accessGroup: string;
   adminGroup?: string;
+  maintainerGroup?: string;
   teamsGroup?: string;
   fetch?: typeof fetch;
   now?: () => number;
@@ -155,14 +157,18 @@ export function createKeycloakDirectoryAdapter(options: KeycloakDirectoryOptions
     async fetchSnapshot() {
       const accessGroup = await groupByPath(options.accessGroup);
       const users = await membersOf(accessGroup.id);
-      const adminIds = new Set<string>();
-      if (options.adminGroup) {
-        const admins = await membersOf((await groupByPath(options.adminGroup)).id);
-        for (const [id, user] of admins) {
-          adminIds.add(id);
+      // Members of these groups have access too, with the group's role.
+      const membersWithRole = async (group: string | undefined) => {
+        const ids = new Set<string>();
+        if (!group) return ids;
+        for (const [id, user] of await membersOf((await groupByPath(group)).id)) {
+          ids.add(id);
           if (!users.has(id)) users.set(id, user);
         }
-      }
+        return ids;
+      };
+      const adminIds = await membersWithRole(options.adminGroup);
+      const maintainerIds = await membersWithRole(options.maintainerGroup);
 
       const teams: DirectoryTeam[] = [];
       const teamOf = new Map<string, string>();
@@ -184,7 +190,7 @@ export function createKeycloakDirectoryAdapter(options: KeycloakDirectoryOptions
           displayName: displayNameOf(user),
           email: user.email?.trim() || null,
           teamExternalId: teamOf.get(user.id) ?? null,
-          isAdmin: adminIds.has(user.id),
+          role: adminIds.has(user.id) ? "admin" : maintainerIds.has(user.id) ? "maintainer" : "member",
         }));
       return { people, teams };
     },

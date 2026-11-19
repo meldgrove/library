@@ -22,7 +22,7 @@ const ID = "01a1b6c4-fa9a-7e81-be3d-3e1322d1f868";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.requireUser.mockResolvedValue({ userId: "user", person: { id: ID, isAdmin: true } });
+  mocks.requireUser.mockResolvedValue({ userId: "user", person: { id: ID, role: "admin" } });
 });
 
 describe("boundValues", () => {
@@ -73,7 +73,7 @@ describe("handleFormAction", () => {
   it("writes and redirects when the bound values pass", async () => {
     const write = vi.fn(async () => "/admin/tags");
     await expect(handleFormAction(form(), schema, write, boundValues.id.safeParse([ID]))).rejects.toThrow("redirect to /admin/tags");
-    expect(write).toHaveBeenCalledWith({ personId: ID, isAdmin: true }, { name: "Budget" });
+    expect(write).toHaveBeenCalledWith({ personId: ID, role: "admin" }, { name: "Budget" });
   });
 });
 

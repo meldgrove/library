@@ -24,7 +24,7 @@ describe("note form lists", () => {
 });
 
 describe("noteFormSchema", () => {
-  const base = { intent: "publish", title: "T", core: "C", keyPoints: "a\nb\nc", citation: "", language: "EN", visibility: "all", documentTypeId: "", projectId: "" };
+  const base = { intent: "publish", title: "T", core: "C", keyPoints: "a\nb\nc", citation: "", language: "EN", visibility: "all", documentTypeId: "", topicAreaId: "" };
 
   it("normalises the form", () => {
     const parsed = noteFormSchema.parse(base);

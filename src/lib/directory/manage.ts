@@ -1,5 +1,6 @@
 import { and, count, eq, ne, sql } from "drizzle-orm";
 import { recordAudit } from "@/lib/audit";
+import type { Role } from "@/lib/auth/roles";
 import type { Database, Transaction } from "@/lib/db/client";
 import { person, team } from "@/lib/db/schema";
 import { CommandError, type Actor } from "@/lib/commands";
@@ -36,7 +37,7 @@ async function changesOf(tx: Transaction, directory: DirectoryRef, actor: Actor,
   const [admins] = await tx
     .select({ value: count() })
     .from(person)
-    .where(and(eq(person.isAdmin, true), eq(person.hasAccess, true)));
+    .where(and(eq(person.role, "admin"), eq(person.hasAccess, true)));
   return personChanges(directory, actor, current, admins?.value ?? 0);
 }
 
@@ -74,14 +75,14 @@ export async function invitePerson(db: Database, directory: DirectoryRef, actor:
         workEmail: input.email,
         teamId: input.teamId,
         hasAccess: true,
-        isAdmin: input.isAdmin,
+        role: input.role,
         accessChangedAt: now,
       })
       .returning({ id: person.id });
     await recordAudit(tx, {
       actorId: actor.personId,
       action: "person.invited", subjectType: "person",
-      payload: { personId: created!.id, email: input.email, isAdmin: input.isAdmin },
+      payload: { personId: created!.id, email: input.email, role: input.role },
     });
     return created!;
   });
@@ -112,7 +113,7 @@ export async function updatePerson(
 
 /**
  * Gives access back or takes it away. Taking it away ends the person's
- * sessions and their admin rights. Nobody can take away their own access, and
+ * sessions and makes them a member again. Nobody can take away their own access, and
  * the last admin keeps theirs (rules.ts).
  */
 export async function setPersonAccess(
@@ -130,7 +131,7 @@ export async function setPersonAccess(
     enforce((await changesOf(tx, directory, actor, current)).access);
     await tx
       .update(person)
-      .set({ hasAccess, isAdmin: hasAccess ? current.isAdmin : false, accessChangedAt: now, updatedAt: now })
+      .set({ hasAccess, role: hasAccess ? current.role : "member", accessChangedAt: now, updatedAt: now })
       .where(eq(person.id, personId));
     if (!hasAccess && current.oidcSubject) await endSessionsForSubjects(tx, [current.oidcSubject]);
     await recordAudit(tx, {
@@ -142,26 +143,19 @@ export async function setPersonAccess(
   });
 }
 
-/** Makes a person with access an admin, or takes admin rights away. There is always at least one admin. */
-export async function setPersonAdmin(
-  db: Database,
-  directory: DirectoryRef,
-  actor: Actor,
-  personId: string,
-  isAdmin: boolean,
-  now: Date = new Date(),
-) {
+/** Gives a person with access a role: member, maintainer, or admin. There is always at least one admin. */
+export async function setPersonRole(db: Database, directory: DirectoryRef, actor: Actor, personId: string, role: Role, now: Date = new Date()) {
   enforce(directoryChange(directory, actor));
   await db.transaction(async (tx) => {
     const current = await lockPerson(tx, personId);
-    if (current.isAdmin === isAdmin) return;
-    enforce((await changesOf(tx, directory, actor, current)).admin);
-    await tx.update(person).set({ isAdmin, updatedAt: now }).where(eq(person.id, personId));
+    if (current.role === role) return;
+    enforce((await changesOf(tx, directory, actor, current)).role);
+    await tx.update(person).set({ role, updatedAt: now }).where(eq(person.id, personId));
     await recordAudit(tx, {
       actorId: actor.personId,
-      action: isAdmin ? "person.admin_granted" : "person.admin_revoked",
+      action: "person.role_changed",
       subjectType: "person",
-      payload: { personId, name: current.displayName },
+      payload: { personId, name: current.displayName, from: current.role, to: role },
     });
   });
 }

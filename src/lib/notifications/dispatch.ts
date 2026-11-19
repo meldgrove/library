@@ -36,7 +36,7 @@ class Skip {
 
 type Recipient = Pick<
   typeof person.$inferSelect,
-  "id" | "displayName" | "workEmail" | "hasAccess" | "isAdmin" | "teamId" | "slackUserId" | "slackLookupFailedAt" | "timeZone" | "dateFormat"
+  "id" | "displayName" | "workEmail" | "hasAccess" | "role" | "teamId" | "slackUserId" | "slackLookupFailedAt" | "timeZone" | "dateFormat"
 >;
 type LookupState = Pick<Recipient, "id" | "workEmail" | "slackLookupFailedAt">;
 
@@ -86,7 +86,7 @@ export async function dispatchNext(db: Database, transports: Transports, now: Da
           displayName: person.displayName,
           workEmail: person.workEmail,
           hasAccess: person.hasAccess,
-          isAdmin: person.isAdmin,
+          role: person.role,
           teamId: person.teamId,
           slackUserId: person.slackUserId,
           slackLookupFailedAt: person.slackLookupFailedAt,
@@ -190,12 +190,12 @@ async function send(
       .select({ status: note.status, visibility: note.visibility, ownerId: note.ownerId, teamId: note.teamId })
       .from(note)
       .where(eq(note.id, delivery.noteId));
-    if (!target || !canSeeNote({ personId: recipient.id, teamId: recipient.teamId, isAdmin: recipient.isAdmin }, target)) {
+    if (!target || !canSeeNote({ personId: recipient.id, teamId: recipient.teamId, role: recipient.role }, target)) {
       return new Skip("The recipient may no longer see this note.");
     }
   }
   if (message.digest) {
-    const rebuilt = await rebuildDigest(tx, message.digest, { personId: recipient.id, teamId: recipient.teamId, isAdmin: recipient.isAdmin });
+    const rebuilt = await rebuildDigest(tx, message.digest, { personId: recipient.id, teamId: recipient.teamId, role: recipient.role });
     if (!rebuilt) return new Skip(NOTHING_LEFT);
     message = rebuilt;
   }

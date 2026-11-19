@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import type { Role } from "@/lib/auth/roles";
 
 /*
  * Shared by every module that writes: who acts, how a write is refused, and
@@ -7,7 +8,7 @@ import type { z } from "zod";
 
 export interface Actor {
   personId: string;
-  isAdmin: boolean;
+  role: Role;
 }
 
 export type FieldErrors = Record<string, string>;

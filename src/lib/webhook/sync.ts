@@ -1,6 +1,6 @@
 import { and, asc, eq, isNotNull, lte, ne, sql } from "drizzle-orm";
 import type { Database, Transaction } from "@/lib/db/client";
-import { documentType, note, noteTag, person, project, source, tag, team, webhookSync } from "@/lib/db/schema";
+import { documentType, note, noteTag, person, source, tag, team, topicArea, webhookSync } from "@/lib/db/schema";
 import { errorMessage, logger } from "@/lib/logger";
 import type { WebhookClient } from "./client";
 import { noteChangedPayload, noteRemovedPayload, payloadHash, type NoteForWebhook } from "./payload";
@@ -41,7 +41,7 @@ export async function noteForWebhook(db: Database | Transaction, noteId: string)
       teamName: team.name,
       teamDirectoryId: team.externalId,
       documentType: documentType.name,
-      project: project.name,
+      topicArea: topicArea.name,
       sourceUrl: source.url,
       doi: source.doi,
     })
@@ -50,7 +50,7 @@ export async function noteForWebhook(db: Database | Transaction, noteId: string)
     .innerJoin(source, eq(source.id, note.sourceId))
     .leftJoin(team, eq(team.id, note.teamId))
     .leftJoin(documentType, eq(documentType.id, note.documentTypeId))
-    .leftJoin(project, eq(project.id, note.projectId))
+    .leftJoin(topicArea, eq(topicArea.id, note.topicAreaId))
     .where(eq(note.id, noteId));
   if (!row || row.note.status !== "published" || row.note.visibility === "private" || !row.note.publishedAt) return null;
   const tags = await db.select({ name: tag.name }).from(noteTag).innerJoin(tag, eq(tag.id, noteTag.tagId)).where(eq(noteTag.noteId, noteId)).orderBy(asc(tag.name));
@@ -69,7 +69,7 @@ export async function noteForWebhook(db: Database | Transaction, noteId: string)
     team: row.teamName ? { name: row.teamName, directoryId: row.teamDirectoryId } : null,
     ownerName: row.ownerName,
     documentType: row.documentType,
-    project: row.project,
+    topicArea: row.topicArea,
     tags: tags.map((t) => t.name),
     sourceUrl: row.sourceUrl,
     doi: row.doi,
