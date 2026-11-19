@@ -1,28 +1,27 @@
-# Meldgrove Library in production: one image, three services, and the PostgreSQL 18 in
-# DATABASE_URL.
+# Meldgrove Library in production on a Linux server (Debian, Ubuntu) with
+# Docker Compose: one image, three services, the `updater` for automatic
+# updates, and the PostgreSQL 18 in DATABASE_URL. Settings live in .env next
+# to this file:
 #
 #   cp .env.example .env    # then set the production values, see docs/configuration.md
-#   docker compose up -d
+#   docker compose up -d --pull always
 #
-# LIBRARY_VERSION in .env selects the image of ghcr.io/meldgrove/library,
-# e.g. 0.2.0. `updater` installs new versions (docs/deployment.md, Automatic
-# updates): on a Debian server it writes the installed version into
-# LIBRARY_VERSION; on a platform, a tag that moves (0.2, latest, preview)
-# decides. To upgrade by hand, read the release notes, change it, and run
-# `docker compose up -d` again. On a platform that does not pull images when
-# it deploys, PULL_POLICY=always makes every start pull them again.
+# LIBRARY_VERSION in .env selects the image of ghcr.io/meldgrove/library: a
+# version such as 0.2.0, or a series such as 0.2. With automatic updates
+# (docs/deployment.md, Automatic updates), the server writes each version it
+# installs there. To upgrade by hand, read the release notes, change it, and
+# run `docker compose up -d --pull always` again.
 #
 # Without a PostgreSQL of your own, add compose.postgres.yaml: it runs one
 # next to the library (docs/deployment.md).
 #
-# Put a TLS-terminating reverse proxy in front of `web` (127.0.0.1:3000 on the
-# host; LIBRARY_PORT changes the port) and set LIBRARY_BASE_URL to its public
-# URL. `migrate` runs once before `web` and
-# `worker` start. Platforms that run Compose files (e.g. Coolify, Portainer)
-# can use this file as it is; set the variables in their environment view. A
-# platform that reads the file from the repository follows the branch
-# `stable`, which is at the newest release; `main` has unreleased changes.
-# Local development uses compose.dev.yaml.
+# `web` listens on 127.0.0.1:3000 (LIBRARY_PORT changes the host port), for a
+# reverse proxy on the same server, such as Caddy, that terminates HTTPS; set
+# LIBRARY_BASE_URL to its public URL. `migrate` runs once before `web` and
+# `worker` start. Back up the database, and the `originals` volume with
+# STORAGE_DRIVER=filesystem. The branch `stable` is at the newest release;
+# `main` has unreleased changes. On Coolify, use compose.coolify.yaml
+# (docs/coolify.md). Local development uses compose.dev.yaml.
 
 x-image: &image ghcr.io/meldgrove/library:${LIBRARY_VERSION:?set LIBRARY_VERSION in .env to a release, e.g. 0.1.0}
 
@@ -70,7 +69,6 @@ x-error-reporting-environment: &error-reporting-environment
 services:
   migrate:
     image: *image
-    pull_policy: ${PULL_POLICY:-missing}
     command: ["migrate"]
     restart: "no"
     environment:
@@ -78,16 +76,14 @@ services:
 
   web:
     image: *image
-    pull_policy: ${PULL_POLICY:-missing}
     command: ["web"]
     restart: unless-stopped
     depends_on:
       migrate:
         condition: service_completed_successfully
     ports:
-      # The host port for a reverse proxy on the host. Platforms with their own
-      # proxy reach `web` over the Docker network; set LIBRARY_PORT to any free
-      # port when 3000 is taken.
+      # Only on the server itself, for the reverse proxy. LIBRARY_PORT picks
+      # another host port when 3000 is taken, e.g. by another app.
       - "127.0.0.1:${LIBRARY_PORT:-3000}:3000"
     volumes:
       - originals:/data/originals
@@ -113,7 +109,6 @@ services:
 
   worker:
     image: *image
-    pull_policy: ${PULL_POLICY:-missing}
     command: ["worker"]
     restart: unless-stopped
     depends_on:
@@ -161,19 +156,17 @@ services:
   # Automatic updates and the update button (docs/deployment.md). It checks
   # for new versions every hour and answers the library on port 8080 of the
   # Compose network; never publish that port, the API has no authentication.
-  # It installs nothing until UPDATE_DEPLOY_HOOK_URL is set (Coolify) or the
-  # server watches the volume `updater` (Debian: `updater host-setup`). Then
-  # it calls that deploy link, or leaves a request in the volume and the
-  # server writes the version into LIBRARY_VERSION and deploys it.
+  # It installs nothing until the server runs `updater host-setup`: then
+  # admins choose Stable or Preview in the library, and for each installation
+  # the server writes the version into LIBRARY_VERSION, pulls it, runs
+  # `docker compose up --wait`, and goes back to the version before when it
+  # does not become healthy.
   updater:
     image: ghcr.io/meldgrove/updater:0.2
-    pull_policy: ${PULL_POLICY:-missing}
     restart: unless-stopped
     environment:
       IMAGE: *image
       VERSION_VARIABLE: LIBRARY_VERSION
-      DEPLOY_HOOK_URL: ${UPDATE_DEPLOY_HOOK_URL:-}
-      DEPLOY_HOOK_TOKEN: ${UPDATE_DEPLOY_HOOK_TOKEN:-}
       # A stable release installs once it has been out this long, and only
       # inside the window, if one is set (e.g. 02:00-05:00, in the time zone TZ).
       COOLDOWN: ${UPDATE_COOLDOWN:-3d}

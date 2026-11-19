@@ -147,9 +147,10 @@ Otherwise it:
 - publishes the image `ghcr.io/meldgrove/library` for amd64 and arm64 as
   `X.Y.Z`, `X.Y`, from 1.0.0 also `X`, and `latest`;
 - attests where the image was built and creates the GitHub Release;
-- moves the branch `stable` to the released commit. Platforms that read
-  `compose.yaml` from the repository follow `stable`, so the file they run
-  belongs to the newest release.
+- moves the branch `stable` to the released commit. Servers take the
+  Compose files from `stable` (`git pull`), and Coolify reads
+  `compose.coolify.yaml` from it, so the files they run belong to the newest
+  release.
 
 If a job fails after the tag was pushed, fix the cause and use **Re-run
 failed jobs**: it publishes from the tag. Do not start a new release for the

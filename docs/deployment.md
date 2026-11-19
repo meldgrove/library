@@ -30,21 +30,22 @@ in the `pgboss` schema of the same database.
 
 [`compose.yaml`](../compose.yaml) runs `migrate`, `web`, and `worker`
 against the PostgreSQL in `DATABASE_URL`, and the optional `updater`
-([automatic updates](#automatic-updates)). Run it on [Coolify](#coolify) or
-on a [Debian server](#debian) (Debian 12 or later, or a similar system with
-systemd and apt, such as Ubuntu 24.04). Both take `compose.yaml` from the
-branch `stable`, which is at the newest release; `main` has changes that are
-not released yet.
+([automatic updates](#automatic-updates)). It is made for a Linux server:
+Debian 12 or later, or a similar system with systemd and apt, such as Ubuntu
+24.04 ([setup](#setup)). The server takes `compose.yaml` from the branch
+`stable`, which is at the newest release; `main` has changes that are not
+released yet. To run the library on Coolify instead, see
+[Coolify](coolify.md).
 
 `LIBRARY_VERSION` is required: Compose stops with a message without it.
 
-Put a reverse proxy that terminates TLS in front of `web` (Coolify's own, or
-Caddy on Debian) and use its public URL as `LIBRARY_BASE_URL`. Use exactly
+Put a reverse proxy that terminates TLS in front of `web` (Caddy, see
+[setup](#setup)) and use its public URL as `LIBRARY_BASE_URL`. Use exactly
 that URL: login redirects and links in messages are built from it. `web`
-answers on `127.0.0.1:3000` of the host. When another service holds that
-port (Docker reports `port is already allocated`), set `LIBRARY_PORT` to a
-free one. Coolify's proxy reaches `web` through the Docker network and does
-not use this port, so any free port will do there.
+answers on `127.0.0.1:3000` of the host, on the server only. When another
+service holds that port (Docker reports `port is already allocated`), set
+`LIBRARY_PORT` to a free one. With several apps on one server, give each its
+own port and its own site in the Caddyfile.
 
 Set `TZ` to your organization's time zone (default UTC); scheduled jobs run in
 that zone.
@@ -83,35 +84,7 @@ docker build -t ghcr.io/meldgrove/library:local .
 docker compose up -d
 ```
 
-## Coolify
-
-1. **Database:** create a PostgreSQL 18 resource and copy its internal URL.
-   `compose.postgres.yaml` does not work on Coolify: it passes its one
-   Compose file with `-f`, which overrides `COMPOSE_FILE`.
-2. **Application:** create a Docker Compose resource from the public
-   repository `https://github.com/meldgrove/library`, branch `stable`,
-   Docker Compose location `/compose.yaml`. Under Advanced, set Auto deploy
-   to "Manual deployments only", so that only releases deploy, and turn on
-   "Connect To Predefined Network", so that the library reaches the
-   database. Without it, `migrate` logs `getaddrinfo EAI_AGAIN` and fails
-   after a minute.
-3. **Domain:** assign the domain, such as `https://library.example.org`, to
-   `web`, port 3000.
-4. **Register the library at your provider** with the redirect URI
-   `<LIBRARY_BASE_URL>/api/auth/callback/oidc`
-   ([identity and access](identity-and-access.md)).
-5. **Environment variables** of the resource
-   ([configuration](configuration.md)): `LIBRARY_VERSION` (a series such as
-   `0.2`, `latest`, or `preview`; see [on Coolify](#on-coolify)), `LIBRARY_BASE_URL`
-   (the domain), `DATABASE_URL` (the database's internal URL), a new
-   `BETTER_AUTH_SECRET` (`openssl rand -base64 32`), the `OIDC_*` variables,
-   `DIRECTORY` with its settings, the `AI_*` variables, and for files the
-   `S3_*` variables ([storage](#storage)).
-6. **Deploy**, open `LIBRARY_BASE_URL`, and take the
-   [first steps](#first-steps-after-the-first-start).
-7. **Automatic updates:** set them up [on Coolify](#on-coolify).
-
-## Debian
+## Setup
 
 On a server with Debian 12 or later, or a similar system such as Ubuntu,
 run the commands as root (`sudo -i`).
@@ -157,7 +130,9 @@ run the commands as root (`sudo -i`).
 
 5. **Start:** `docker compose up -d --pull always`.
 6. **HTTPS:** point the domain's DNS at the server, install Caddy
-   (`apt install caddy`), and replace `/etc/caddy/Caddyfile` with:
+   (`apt install caddy`), and put this site into `/etc/caddy/Caddyfile`, in
+   place of the package's example site `:80` and next to the sites of other
+   apps:
 
    ```text
    library.example.org {
@@ -170,7 +145,7 @@ run the commands as root (`sudo -i`).
 
 7. Open `LIBRARY_BASE_URL` and take the
    [first steps](#first-steps-after-the-first-start).
-8. **Automatic updates:** set them up [on Debian](#on-debian).
+8. **Automatic updates:** [set them up](#setup-on-the-server).
 
 ## First steps after the first start
 
@@ -206,23 +181,20 @@ admin page shows the worker's last heartbeat.
 - **Upgrades**: read the release notes of every release since yours and
   take their steps. Back up the database first: migrations only move
   forward. `migrate` applies new migrations before `web` and `worker` start.
-  - **Coolify:** set `LIBRARY_VERSION` to the new release in the resource's
-    environment variables and redeploy. Coolify reads `compose.yaml` from
-    `stable`, which is at the newest release.
-  - **Debian:** take the steps, then install the release with the update
-    button (**Install anyway…**). By hand: in `/srv/library`, run `git pull`
-    (the newest release's `compose.yaml`), set `LIBRARY_VERSION` in `.env`,
-    and run `docker compose up -d --pull always`.
+  Take the steps, then install the release with the update button
+  (**Install anyway…**). By hand: in `/srv/library`, run `git pull` (the
+  newest release's `compose.yaml`), set `LIBRARY_VERSION` in `.env`, and run
+  `docker compose up -d --pull always`.
 
 ## Automatic updates
 
 `compose.yaml` includes the `updater` service of
 [Meldgrove Updater](https://github.com/meldgrove/updater) (image
 `ghcr.io/meldgrove/updater:0.2`). Once an hour it checks for new versions of
-the library. Set up [on Coolify](#on-coolify) or [on Debian](#on-debian), it
-installs them: `migrate` runs first, then `web` and `worker` restart.
-Without that setup it installs nothing, and the update button still shows
-what is available.
+the library. Once the [host setup](#setup-on-the-server) runs, it installs
+them: `migrate` runs first, then `web` and `worker` restart. Without that
+setup it installs nothing, and the update button still shows what is
+available.
 
 Admins choose the channel under **Admin → Updates**:
 
@@ -264,27 +236,9 @@ authentication: never publish its port. Without an updater that answers,
 such as updater 0.1, which has no API, the button says "No update service";
 updater 0.1 keeps installing as before.
 
-### On Coolify
+### Setup on the server
 
-1. Under Settings > Advanced, turn on API Access if it is off.
-2. Under Keys & Tokens > API Tokens, create a token with only the `deploy`
-   permission; clear `read`. Coolify shows it only once.
-3. In the library's resource, select Webhooks and copy Deploy Webhook.
-4. In the resource's environment variables, set `UPDATE_DEPLOY_HOOK_URL` to
-   the webhook and `UPDATE_DEPLOY_HOOK_TOKEN` to the token, then redeploy.
-
-On Coolify, the image tag in `LIBRARY_VERSION` decides what installs, not the
-channel in the library: a series such as `0.2` (Stable), `latest` (every
-release, including those with upgrade steps; watch the releases on GitHub
-and take their steps right away), or `preview` (Preview). The admin page
-says so instead of offering the channel. When the tag points to a new image,
-the updater calls the deploy link; **Install now** calls it at once. A
-release with upgrade steps that the tag does not reach shows in the update
-button without an install action: take its steps, then change the tag.
-
-### On Debian
-
-As root in `/srv/library`, with `UPDATE_DEPLOY_HOOK_URL` empty:
+As root in `/srv/library`:
 
 ```sh
 docker compose up -d --pull always
