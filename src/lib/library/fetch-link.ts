@@ -139,8 +139,9 @@ function requestOnce(
       (response) => {
         const status = response.statusCode ?? 0;
         const contentType = String(response.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
-        if (status >= 300 && status < 400) {
-          response.resume();
+        if (status < 200 || status >= 300) {
+          // Only the headers matter here. A redirect or error body can stream indefinitely.
+          response.destroy();
           resolve({ status, location: response.headers.location, contentType, bytes: new Uint8Array() });
           return;
         }

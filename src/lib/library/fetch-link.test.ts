@@ -28,6 +28,7 @@ describe("fetchLink", () => {
   let other: Server;
   let base: string;
   let otherBase: string;
+  let redirectClosed: Promise<void>;
 
   const echo = (request: { headers: Record<string, string | string[] | undefined> }, response: import("node:http").ServerResponse) =>
     response.writeHead(200, { "content-type": "text/plain" }).end(String(request.headers.authorization ?? "none"));
@@ -44,7 +45,8 @@ describe("fetchLink", () => {
       } else if (request.url === "/away") {
         response.writeHead(302, { location: `${otherBase}/echo` }).end();
       } else if (request.url === "/redirect") {
-        response.writeHead(302, { location: "/page" }).end();
+        redirectClosed = new Promise((resolve) => response.once("close", resolve));
+        response.writeHead(302, { location: "/page" }).flushHeaders();
       } else if (request.url === "/loop") {
         response.writeHead(302, { location: "/loop" }).end();
       } else if (request.url === "/big") {
@@ -80,6 +82,7 @@ describe("fetchLink", () => {
     const result = await fetchLink(`${base}/redirect`, allow);
     expect(result).toMatchObject({ url: `${base}/page`, contentType: "text/html" });
     expect(Buffer.from(result.bytes).toString()).toContain("<title>Page</title>");
+    await redirectClosed;
   });
 
   it("sends extra headers to the link's own origin only", async () => {
