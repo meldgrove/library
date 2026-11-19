@@ -11,6 +11,21 @@ export function createLogger(destination?: DestinationStream) {
       censor: "[redacted]",
     },
     serializers: { err: serializeError },
+    hooks: {
+      logMethod(args, method) {
+        // Pino otherwise copies the original message before serializing err.
+        const [first, explicitMessage] = args;
+        if (explicitMessage === undefined && first && typeof first === "object") {
+          const { err, msg } = first as { err?: ErrorDetails; msg?: unknown };
+          const error = first instanceof Error ? first : err;
+          if (msg === undefined && typeof error?.message === "string") {
+            const message = databaseErrorMessage(error.message, error);
+            if (message) return method.call(this, first, message);
+          }
+        }
+        return method.apply(this, args);
+      },
+    },
   }, destination);
 }
 

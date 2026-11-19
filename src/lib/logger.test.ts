@@ -16,6 +16,8 @@ it("omits database inputs from structured and string diagnostics", () => {
   const plain = { ...error, message: error.message, stack: error.stack };
   logger.warn({ err: plain, error: errorMessage(error) }, "database write failed");
   logger.warn({ err: cause, error: errorMessage(cause) }, "query failed");
+  logger.warn({ err: plain });
+  logger.warn(error);
 
   expect(output.join("")).not.toContain("Example source text");
   expect(JSON.parse(output[0]!)).toMatchObject({
@@ -27,6 +29,12 @@ it("omits database inputs from structured and string diagnostics", () => {
     err: { message: "PostgreSQL error (22P02)" },
     error: "PostgreSQL error (22P02)",
   });
+  for (const line of output.slice(2)) {
+    expect(JSON.parse(line)).toMatchObject({
+      msg: "Database query failed (PostgreSQL 22P02)",
+      err: { message: "Database query failed (PostgreSQL 22P02)" },
+    });
+  }
 });
 
 it("keeps the message and stack for ordinary errors", () => {

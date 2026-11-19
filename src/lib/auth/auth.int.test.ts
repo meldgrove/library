@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { DrizzleQueryError, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { connectTestDatabase } from "../../../tests/integration/db";
 import { startFakeOidcProvider, type FakeOidcProvider, type OidcIdentity } from "../../../tests/integration/oidc-provider";
@@ -6,6 +6,7 @@ import { getPool } from "@/lib/db/client";
 import { authAccount, authSession, person } from "@/lib/db/schema";
 import { createManualDirectory } from "@/lib/directory/manual";
 import { endSessionsForSubjects } from "@/lib/directory/sessions";
+import { logger } from "@/lib/logger";
 import { createAuth, type Auth } from "./auth";
 import { getCurrentPerson } from "./session";
 
@@ -86,6 +87,20 @@ async function addPerson(values: Partial<typeof person.$inferInsert>) {
 }
 
 describe("login with the OIDC provider", () => {
+  it("routes Better Auth database errors through structured logging", async () => {
+    const log = vi.spyOn(logger, "error");
+    try {
+      const context = await auth.$context;
+      const failure = new DrizzleQueryError("select token from auth_session where token = $1", ["example-session-token"], new Error("Database offline"));
+      context.logger.error("INTERNAL_SERVER_ERROR", failure);
+      context.logger.error(failure as unknown as string);
+      expect(log).toHaveBeenNthCalledWith(1, { component: "auth", err: failure }, "INTERNAL_SERVER_ERROR");
+      expect(log).toHaveBeenNthCalledWith(2, { component: "auth", err: failure }, "Database query failed");
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("keeps each session with the person of the `sub` it logged in with", async () => {
     const ada = await addPerson({ oidcSubject: "sub-ada", displayName: "Ada" });
     const bea = await addPerson({ oidcSubject: "sub-bea", displayName: "Bea" });
