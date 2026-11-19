@@ -196,6 +196,24 @@ describe("pipeline", () => {
     expect((await statusOf(submissionId)).noteId).not.toBeNull();
   });
 
+  it("finds the visible note for a repeat link whose first upload moved to an existing file", async () => {
+    const file = await upload("study.pdf", await fixture("study.pdf"));
+    expect(await processNext(deps())).toBe("drafted");
+    const { noteId } = await statusOf(file.submissionId);
+    const [published] = await db.update(note).set({ status: "published" }).where(eq(note.id, noteId!)).returning();
+    const input = { submitterId: seed.people.dan.id, channel: "web" as const, reason: "Same paper", url: `${base}/paper.pdf` };
+
+    const first = await submitLink(db, input);
+    expect(await processNext(deps())).toBe("duplicate");
+    expect((await statusOf(first.submissionId)).sourceId).toBe(file.sourceId);
+
+    const again = await submitLink(db, input);
+    expect(await processNext(deps())).toBe("duplicate");
+    expect(await listMySubmissions(db, viewerOf(seed.people.dan))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: again.submissionId, noteNumber: published!.number, url: null }),
+    ]));
+  });
+
   it("keeps the name and type of a Word file behind a link, so a retry can read it again", async () => {
     const { submissionId, sourceId } = await submitLink(db, { submitterId: seed.people.ada.id, channel: "web", reason: "Guideline", url: `${base}/files/guideline` });
     const first = await processNext(deps());

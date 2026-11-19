@@ -2,7 +2,7 @@ import path from "node:path";
 import { and, asc, eq, inArray, isNotNull, lte, ne, or, sql } from "drizzle-orm";
 import { recordAudit, type AuditAction } from "@/lib/audit";
 import type { Database, Transaction } from "@/lib/db/client";
-import { documentType, note, noteReason, noteTag, noteVersion, person, source, sourceText, submission, tag, tagProposal, topicArea } from "@/lib/db/schema";
+import { auditEvent, documentType, note, noteReason, noteTag, noteVersion, person, source, sourceText, submission, tag, tagProposal, topicArea } from "@/lib/db/schema";
 import { errorMessage, logger } from "@/lib/logger";
 import { consumeRateLimit, RateLimitError } from "@/lib/rate-limit";
 import { originalKey, type Storage } from "@/lib/storage";
@@ -160,6 +160,24 @@ async function textOfLink(deps: PipelineDeps, row: SourceRow, claimed: Claimed):
   }
 }
 
+/** A linked file can have moved its creating submission to the source of the same bytes. */
+async function mergedSourceOf(db: Database, row: SourceRow): Promise<string | undefined> {
+  const [moved] = await db
+    .select({ sourceId: submission.sourceId })
+    .from(auditEvent)
+    .innerJoin(submission, eq(submission.id, auditEvent.subjectId))
+    .innerJoin(source, eq(source.id, row.id))
+    .where(and(
+      eq(auditEvent.subjectType, "submission"),
+      eq(auditEvent.action, "submission.received"),
+      eq(auditEvent.createdAt, source.createdAt),
+      sql`${auditEvent.payload}->>'sourceId' = ${row.id}`,
+      ne(submission.sourceId, row.id),
+    ))
+    .limit(1);
+  return moved?.sourceId;
+}
+
 /** The source's text: stored from an earlier upload, or extracted now. */
 async function ensureText(deps: PipelineDeps, claimed: Claimed): Promise<{ text: string; sourceId: string }> {
   const [result] = await deps.db
@@ -170,6 +188,10 @@ async function ensureText(deps: PipelineDeps, claimed: Claimed): Promise<{ text:
   if (row.kind === "link" && creatorId !== claimed.submitterId) {
     // A matching link is not proof the submitter can read the saved document.
     await checkDuplicate(deps.db, row.id);
+    if (creatorId === null) {
+      const mergedSourceId = await mergedSourceOf(deps.db, row);
+      if (mergedSourceId) await checkDuplicate(deps.db, mergedSourceId);
+    }
     throw new Stop("duplicate", DUPLICATE_SUBMISSION_REASON);
   }
   const [stored] = await deps.db.select({ text: sourceText.text }).from(sourceText).where(eq(sourceText.sourceId, row.id));
