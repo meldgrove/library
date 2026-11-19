@@ -76,7 +76,17 @@ describe("callUpdater", () => {
     expect(requests.map((request) => request.url)).toEqual(["/v1/install", "/v1/status"]);
   });
 
-  it("turns a server error of the updater into 409 as well", async () => {
+  it("keeps a server error of an install: it may have started", async () => {
+    handler = (request, _body, response) =>
+      request.url === "/v1/install" ? json(response, 500, { error: "The deploy link answered HTTP 502." }) : json(response, 200, status());
+    const result = await callUpdater(updaterCalls.install("0.2.1"));
+    expect(result).toEqual({
+      httpStatus: 500,
+      body: { app: { version: "0.2.0" }, reachable: true, updater: status(), error: "The deploy link answered HTTP 502." },
+    });
+  });
+
+  it("turns a server error of a check into 409", async () => {
     handler = (request, _body, response) =>
       request.url === "/v1/check" ? json(response, 500, { error: "The registry did not answer." }) : json(response, 200, status());
     const result = await callUpdater(updaterCalls.check());

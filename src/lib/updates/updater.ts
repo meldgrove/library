@@ -80,7 +80,7 @@ const errorSchema = z.object({ error: z.string().min(1) });
 
 type Answer =
   | { kind: "status"; httpStatus: number; status: Status }
-  | { kind: "refused"; error: string }
+  | { kind: "refused"; httpStatus: number; error: string }
   | { kind: "unreachable"; error: string };
 
 const NETWORK_ERRORS: Record<string, string> = {
@@ -130,7 +130,7 @@ async function ask(baseUrl: string, call: UpdaterCall): Promise<Answer> {
     if (parsed.success) return { kind: "status", httpStatus: response.status, status: parsed.data };
   } else if (response.status >= 400 && response.status < 600) {
     const parsed = errorSchema.safeParse(payload);
-    if (parsed.success) return { kind: "refused", error: parsed.data.error };
+    if (parsed.success) return { kind: "refused", httpStatus: response.status, error: parsed.data.error };
   }
   return {
     kind: "unreachable",
@@ -146,7 +146,10 @@ function appVersion(): UpdatesResponse["app"] {
  * Calls the updater and turns its answer into the library's:
  *
  * - a status: 200, or 202 for an accepted installation;
- * - an error answer of the updater: 409 with its `error` and the latest status;
+ * - an error answer of the updater: 409 with its `error` and the latest status,
+ *   except a server error (5xx) of an install, which keeps its status code:
+ *   the browser cannot tell whether that installation started, and looks for
+ *   it, while it takes a 4xx as a refusal;
  * - no updater (connection failure, timeout, another service, or an empty
  *   UPDATER_URL): 200 with `reachable: false`.
  */
@@ -165,8 +168,9 @@ export async function callUpdater(call: UpdaterCall): Promise<UpdatesResult> {
       return { httpStatus: 200, body: { app, reachable: false, updater: null, error: answer.error } };
     case "refused": {
       const latest = call.path === STATUS_CALL.path ? null : await ask(baseUrl, STATUS_CALL);
+      const serverError = call.path === "/v1/install" && answer.httpStatus >= 500;
       return {
-        httpStatus: 409,
+        httpStatus: serverError ? answer.httpStatus : 409,
         body: { app, reachable: true, updater: latest?.kind === "status" ? latest.status : null, error: answer.error },
       };
     }

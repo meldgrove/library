@@ -17,6 +17,7 @@ import {
   installingVersion,
   installsLine,
   relativeTime,
+  replacedFailure,
   reportedFailure,
   runningVersion,
   safeLink,
@@ -101,7 +102,9 @@ export function UpdateButton({ preferences }: { preferences: DisplayPreferences 
   const snapshot = useUpdates();
   const { response, wait, done } = snapshot;
   const state = buttonState(snapshot);
-  const failure = snapshot.failure ?? reportedFailure(response?.updater ?? null);
+  // A failure from this page whose version a newer offer replaced: a line in that offer.
+  const replaced = replacedFailure(snapshot.failure, response?.updater ?? null);
+  const failure = (replaced ? null : snapshot.failure) ?? reportedFailure(response?.updater ?? null);
   const [open, setOpen] = useState(false);
   const [tooltipOpen, setTooltipOpen] = useState(false);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
@@ -115,9 +118,10 @@ export function UpdateButton({ preferences }: { preferences: DisplayPreferences 
     return () => clearTimeout(timer);
   }, [done]);
 
-  // A failed check or a refused installation where no other panel shows it, such as "Up to date".
-  const error = (state === "up-to-date" || state === "off") && snapshot.actionError ? snapshot.actionError : null;
-  const hasPanel = state === "available" || state === "attention" || state === "failed" || state === "installing" || error !== null;
+  // A failed check or a refused installation where no other panel shows it, such as "Up to date" or "unreachable".
+  const ownPanel = state === "available" || state === "attention" || state === "failed" || state === "installing";
+  const error = !ownPanel && snapshot.actionError ? snapshot.actionError : null;
+  const hasPanel = ownPanel || error !== null;
   // An installation this page asked for that failed, and an error from this page, open by themselves.
   const popoverOpen = hasPanel && (open || snapshot.failure?.mine === true || error !== null);
   const label = tooltipFor(state, snapshot, failure, error);
@@ -186,6 +190,7 @@ export function UpdateButton({ preferences }: { preferences: DisplayPreferences 
                 formatDateTime={formatter.dateTime}
                 onInstall={askToInstall}
                 snapshot={snapshot}
+                replaced={replaced}
               />
             ) : null}
             {state === "attention" && response?.updater?.attention ? (
@@ -194,6 +199,7 @@ export function UpdateButton({ preferences }: { preferences: DisplayPreferences 
                 action={installAction(response.updater, true)}
                 onInstall={askToInstall}
                 snapshot={snapshot}
+                replaced={replaced}
               />
             ) : null}
             {state === "failed" && failure ? (
@@ -238,7 +244,17 @@ function ActionError({ snapshot }: { snapshot: UpdatesSnapshot }) {
   );
 }
 
-/** A failed check or a refused installation, from the "Up to date" and "off" states. */
+/** A failed installation of an earlier offer, in the newer offer that replaced it. */
+function ReplacedFailure({ failure }: { failure: Failure | null }) {
+  if (!failure) return null;
+  return (
+    <p className="break-words text-destructive">
+      {failure.version} failed{failure.message ? `: ${failure.message}` : "."}
+    </p>
+  );
+}
+
+/** A failed check or a refused installation, in the states without a panel of their own ("Up to date", "off", "unreachable"). */
 function ErrorPanel({ error }: { error: ActionErrorValue }) {
   return (
     <PopoverHeader>
@@ -266,8 +282,9 @@ function AvailablePanel(props: {
   formatDateTime: (value: Date) => string;
   onInstall: (update: Update, attention: boolean) => void;
   snapshot: UpdatesSnapshot;
+  replaced: Failure | null;
 }) {
-  const { update, installable, now, formatDateTime, onInstall, snapshot } = props;
+  const { update, installable, now, formatDateTime, onInstall, snapshot, replaced } = props;
   const published = relativeTime(update.publishedAt, now);
   const { notes, more } = visibleNotes(update);
   const installs = installsLine(update, now, formatDateTime);
@@ -295,6 +312,7 @@ function AvailablePanel(props: {
       {more > 0 ? <p className="text-muted-foreground">and {more === 1 ? "1 more change" : `${more} more changes`}</p> : null}
       <ReleaseNotesLink url={update.url} />
       {installable && installs ? <p className="text-muted-foreground">{installs}</p> : null}
+      <ReplacedFailure failure={replaced} />
       <ActionError snapshot={snapshot} />
       {installable ? (
         <Button size="sm" className="w-fit" disabled={snapshot.requesting} onClick={() => onInstall(update, false)}>
@@ -312,8 +330,9 @@ function AttentionPanel(props: {
   action: "install" | "off" | "locked";
   onInstall: (update: Update, attention: boolean) => void;
   snapshot: UpdatesSnapshot;
+  replaced: Failure | null;
 }) {
-  const { update, action, onInstall, snapshot } = props;
+  const { update, action, onInstall, snapshot, replaced } = props;
   return (
     <>
       <PopoverHeader>
@@ -321,6 +340,7 @@ function AttentionPanel(props: {
         <p className="text-muted-foreground">This release changes the setup. Take the upgrade steps from its release notes on the server first.</p>
       </PopoverHeader>
       <ReleaseNotesLink url={update.url} />
+      <ReplacedFailure failure={replaced} />
       <ActionError snapshot={snapshot} />
       {action === "install" ? (
         <Button size="sm" variant="outline" className="w-fit" disabled={snapshot.requesting} onClick={() => onInstall(update, true)}>
@@ -385,7 +405,8 @@ function InstallingPanel({ snapshot }: { snapshot: UpdatesSnapshot }) {
           {wait?.restarting ? "Restarting…" : stageLabel(stage, wait?.from ?? runningVersion(response))}
         </p>
       </PopoverHeader>
-      <p>{APP_NAME} restarts. This page reloads when it is back.</p>
+      {/* Only while this page follows the installation: after Stop waiting it does not reload. */}
+      {wait ? <p>{APP_NAME} restarts. This page reloads when it is back.</p> : null}
       <ActionError snapshot={snapshot} />
       {slow && wait ? (
         <>

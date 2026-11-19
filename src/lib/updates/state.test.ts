@@ -6,21 +6,25 @@ import {
   buttonState,
   channelError,
   checkError,
+  dismissal,
   formatCooldown,
   gaveUp,
   installAction,
   installOutcome,
   installsLine,
+  isDismissed,
   isSlow,
   newAttempt,
   RECONCILE_MS,
   relativeTime,
+  replacedFailure,
   reportedFailure,
   safeLink,
   SIGNED_OUT,
   stableDescription,
   stageLabel,
   startWait,
+  unconfirmedError,
   visibleNotes,
   type InstallWait,
 } from "./state";
@@ -39,13 +43,15 @@ const failedStatus = status({
 const wait = (extra: Partial<InstallWait> = {}): InstallWait => ({
   version: "0.2.1",
   from: "0.2.0",
-  requestedAt: "2026-11-19T10:00:00.000Z",
-  before: null,
+  startedAt: "2026-11-19T10:00:00.000Z",
+  earlier: null,
   since: NOW,
   mine: true,
   confirmed: true,
   giveUpAt: null,
   reason: null,
+  error: null,
+  answered: false,
   outage: false,
   restarting: false,
   ...extra,
@@ -86,6 +92,19 @@ describe("buttonState", () => {
     // The failed version was replaced by a newer one without a failure.
     expect(state(status({ available: release("0.2.2"), last: failedStatus.last }))).toBe("available");
   });
+
+  it("shows a newer offer over a failure from this page, with the failure as a line in it", () => {
+    const failure = { version: "0.2.1", message: "container web is unhealthy. 0.2.0 runs again.", mine: true };
+    const newer = status({ available: release("0.2.2"), last: failedStatus.last });
+    expect(state(newer, { failure })).toBe("available");
+    expect(replacedFailure(failure, newer)).toEqual(failure);
+    expect(state(status({ attention: release("0.3.0") }), { failure })).toBe("attention");
+    // Still offered, or nothing else offered: the failure itself shows.
+    expect(state(status({ available: release("0.2.1"), attention: release("0.3.0") }), { failure })).toBe("failed");
+    expect(replacedFailure(failure, status({ available: release("0.2.1") }))).toBeNull();
+    expect(state(status(), { failure })).toBe("failed");
+    expect(replacedFailure(failure, status())).toBeNull();
+  });
 });
 
 describe("reportedFailure", () => {
@@ -108,7 +127,7 @@ describe("installOutcome", () => {
 
   it("keeps waiting while the updater still installs the version, even when the library already answers with it", () => {
     const outcome = installOutcome(wait(), answer(status({ installing: installing() }), { app: { version: "0.2.1" } }));
-    expect(outcome).toEqual({ kind: "waiting", wait: wait() });
+    expect(outcome).toEqual({ kind: "waiting", wait: wait({ answered: true }) });
   });
 
   it("is done when the server installed it", () => {
@@ -125,13 +144,42 @@ describe("installOutcome", () => {
 
   it("ignores a result from before the attempt", () => {
     const stale = { finishedAt: "2026-11-19T09:00:00.000Z" };
-    expect(installOutcome(wait(), answer(withLast("rolled-back", stale)))).toEqual({ kind: "waiting", wait: wait() });
-    expect(installOutcome(wait(), answer(withLast("installed", stale)))).toEqual({ kind: "waiting", wait: wait() });
+    expect(installOutcome(wait(), answer(withLast("rolled-back", stale)))).toEqual({ kind: "waiting", wait: wait({ answered: true }) });
+    expect(installOutcome(wait(), answer(withLast("installed", stale)))).toEqual({ kind: "waiting", wait: wait({ answered: true }) });
     // Without the updater's clock, the browser's; and the result known when the attempt started never counts.
-    expect(installOutcome(wait({ requestedAt: null }), answer(withLast("failed", stale)))).toMatchObject({ kind: "waiting" });
-    expect(installOutcome(wait({ requestedAt: null, since: 0, before: "2026-11-19T10:00:08.000Z" }), answer(withLast("failed")))).toMatchObject({
+    expect(installOutcome(wait({ startedAt: null }), answer(withLast("failed", stale)))).toMatchObject({ kind: "waiting" });
+    expect(installOutcome(wait({ startedAt: null, since: 0, earlier: last("failed") }), answer(withLast("failed")))).toMatchObject({
       kind: "waiting",
     });
+  });
+
+  it("compares with the updater's whole seconds: a result in the second the attempt started is fresh", () => {
+    // The install request's answer was lost; the platform accepted it in the same second (10:00:00.700 in the browser).
+    const lost = afterInstallAnswer(newAttempt("0.2.1", answer(status({ mode: "platform" })), NOW + 700), { kind: "down", reason: "The library did not answer." }, NOW + 700);
+    const accepted = answer(status({ mode: "platform", last: last("accepted", { finishedAt: "2026-11-19T10:00:00Z" }) }));
+    const outcome = installOutcome(lost.wait!, accepted);
+    expect(outcome).toMatchObject({ kind: "waiting", wait: { confirmed: true } });
+    if (outcome.kind !== "waiting") throw new Error("not waiting");
+    expect(gaveUp(outcome.wait, NOW + 700 + RECONCILE_MS)).toBe(false);
+    expect(installOutcome(outcome.wait, { ...accepted, app: { version: "0.2.1" } })).toEqual({ kind: "done" });
+    // A result of the second before is not.
+    expect(installOutcome(lost.wait!, answer(status({ last: last("accepted", { finishedAt: "2026-11-19T09:59:59Z" }) })))).toMatchObject({
+      kind: "waiting",
+      wait: { confirmed: false },
+    });
+  });
+
+  it("does not take the earlier result as its own when a retry starts in the same second", () => {
+    const failed = last("failed", { message: "pull access denied", finishedAt: "2026-11-19T10:00:05Z" });
+    const retry = afterInstallAnswer(
+      newAttempt("0.2.1", answer(status({ available: release("0.2.1"), last: failed })), Date.parse("2026-11-19T10:00:05.400Z")),
+      { kind: "down", reason: "The library did not answer." },
+      Date.parse("2026-11-19T10:00:05.400Z"),
+    ).wait!;
+    expect(retry.earlier).toEqual(failed);
+    expect(installOutcome(retry, answer(status({ available: release("0.2.1"), last: failed })))).toMatchObject({ kind: "waiting", wait: { confirmed: false } });
+    // Another result in the same second is the retry's.
+    expect(installOutcome(retry, answer(status({ last: { ...failed, result: "installed", message: null } })))).toEqual({ kind: "done" });
   });
 
   it("ignores results of other versions while the updater installs", () => {
@@ -149,19 +197,30 @@ describe("installOutcome", () => {
 
   it("is done when nothing reports the installation any more and the library runs the version", () => {
     expect(installOutcome(wait(), answer(status(), { app: { version: "0.2.1" } }))).toEqual({ kind: "done" });
-    expect(installOutcome(wait(), answer(status()))).toEqual({ kind: "waiting", wait: wait() });
+    expect(installOutcome(wait(), answer(status()))).toEqual({ kind: "waiting", wait: wait({ answered: true }) });
   });
 
-  it("keeps waiting while the updater cannot be asked", () => {
-    expect(installOutcome(wait(), answer(null))).toEqual({ kind: "waiting", wait: wait({ restarting: true }) });
+  it("keeps waiting while the updater cannot be asked, and counts that as an outage", () => {
+    const error = "The update service at http://updater:8080 is not reachable (connection refused).";
+    expect(installOutcome(wait(), answer(null, { error }))).toEqual({ kind: "waiting", wait: wait({ restarting: true, outage: true, error }) });
     expect(installOutcome(wait(), answer(null, { app: { version: "0.2.1" } }))).toMatchObject({ kind: "waiting" });
   });
 
+  it("completes a platform's deployment without an app version after reachable: false, once the updater answers again", () => {
+    const development = wait({ from: null, startedAt: null });
+    const accepted = answer(withLast("accepted"), { app: { version: null } });
+    expect(installOutcome(development, accepted)).toMatchObject({ kind: "waiting", wait: { confirmed: true, outage: false } });
+    const restarted = installOutcome(development, answer(null, { app: { version: null } }));
+    expect(restarted).toMatchObject({ kind: "waiting", wait: { outage: true, restarting: true } });
+    if (restarted.kind !== "waiting") throw new Error("not waiting");
+    expect(installOutcome(restarted.wait, accepted)).toEqual({ kind: "done" });
+  });
+
   it("confirms an attempt once a status reports it, with the updater's clock", () => {
-    const attempt = wait({ requestedAt: null, confirmed: false, giveUpAt: NOW + RECONCILE_MS });
+    const attempt = wait({ startedAt: null, confirmed: false, giveUpAt: NOW + RECONCILE_MS });
     expect(installOutcome(attempt, answer(status({ installing: installing("pulling") })))).toEqual({
       kind: "waiting",
-      wait: { ...attempt, confirmed: true, requestedAt: "2026-11-19T10:00:00.000Z" },
+      wait: { ...attempt, confirmed: true, answered: true, startedAt: "2026-11-19T10:00:00.000Z" },
     });
   });
 
@@ -179,22 +238,37 @@ describe("install requests", () => {
   const attempt = newAttempt("0.2.1", answer(failedStatus), NOW);
 
   it("remembers the attempt before the request, with the result known then", () => {
-    expect(attempt).toEqual(wait({ requestedAt: null, before: "2026-11-19T09:00:00.000Z", confirmed: false }));
+    expect(attempt).toEqual(wait({ startedAt: null, earlier: failedStatus.last, confirmed: false }));
   });
 
   it("follows an accepted installation with the updater's clock", () => {
     const accepted = afterInstallAnswer(attempt, { kind: "answer", httpStatus: 202, body: answer(status({ installing: installing("requested") })) }, NOW);
-    expect(accepted).toEqual({ wait: { ...attempt, confirmed: true, requestedAt: "2026-11-19T10:00:00.000Z" }, error: null });
+    expect(accepted).toEqual({ wait: { ...attempt, confirmed: true, startedAt: "2026-11-19T10:00:00.000Z" }, error: null });
     const platform = afterInstallAnswer(attempt, { kind: "answer", httpStatus: 202, body: answer(status({ mode: "platform", last: { version: "0.2.1", result: "accepted", message: null, finishedAt: "2026-11-19T10:00:02.000Z" } })) }, NOW);
-    expect(platform.wait).toMatchObject({ confirmed: true, requestedAt: "2026-11-19T10:00:02.000Z" });
+    expect(platform.wait).toMatchObject({ confirmed: true, startedAt: null });
   });
 
-  it("keeps the attempt after an unclear answer and looks for it for a minute", () => {
-    const lost = afterInstallAnswer(attempt, { kind: "down", reason: "The library did not answer." }, NOW);
-    expect(lost).toEqual({ wait: { ...attempt, giveUpAt: NOW + RECONCILE_MS, reason: "The library did not answer." }, error: null });
+  it("follows a 202 whose body cannot be read, and takes another 4xx as a refusal", () => {
+    expect(afterInstallAnswer(attempt, { kind: "down", httpStatus: 202, reason: "The library answered with HTTP 202." }, NOW)).toEqual({
+      wait: { ...attempt, confirmed: true },
+      error: null,
+    });
+    expect(afterInstallAnswer(attempt, { kind: "down", httpStatus: 429, reason: "The library answered with HTTP 429." }, NOW)).toEqual({
+      wait: null,
+      error: "The library answered with HTTP 429.",
+    });
+  });
+
+  it("keeps the attempt after an unclear answer and looks for it until a minute after it started", () => {
+    const lost = afterInstallAnswer(attempt, { kind: "down", reason: "The library did not answer." }, NOW + 20_000);
+    const reason = "The library did not answer.";
+    expect(lost).toEqual({ wait: { ...attempt, giveUpAt: NOW + RECONCILE_MS, reason, error: reason, outage: true, restarting: true }, error: null });
+    const unavailable = "The update service could not start the installation.";
+    const serverError = afterInstallAnswer(attempt, { kind: "down", httpStatus: 503, reason: unavailable }, NOW);
+    expect(serverError.wait).toMatchObject({ confirmed: false, giveUpAt: NOW + RECONCILE_MS, reason: unavailable });
     const timeout = "The update service at http://updater:8080 did not answer within 10 seconds.";
     const noUpdater = afterInstallAnswer(attempt, { kind: "answer", httpStatus: 200, body: answer(null, { error: timeout }) }, NOW);
-    expect(noUpdater.wait).toMatchObject({ confirmed: false, giveUpAt: NOW + RECONCILE_MS, reason: timeout });
+    expect(noUpdater.wait).toMatchObject({ confirmed: false, giveUpAt: NOW + RECONCILE_MS, reason: timeout, outage: true });
     expect(gaveUp(lost.wait!, NOW + RECONCILE_MS - 1)).toBe(false);
     expect(gaveUp(lost.wait!, NOW + RECONCILE_MS)).toBe(true);
     expect(gaveUp({ ...lost.wait!, confirmed: true }, NOW + RECONCILE_MS)).toBe(false);
@@ -212,7 +286,7 @@ describe("install requests", () => {
     const running = { ...installing("pulling"), version: "0.2.2", manual: false };
     const refused = afterInstallAnswer(attempt, { kind: "answer", httpStatus: 409, body: answer(status({ installing: running }), { error: "0.2.2 is being installed." }) }, NOW);
     expect(refused).toEqual({
-      wait: { ...attempt, version: "0.2.2", requestedAt: "2026-11-19T10:00:00.000Z", before: null, mine: false, confirmed: true },
+      wait: { ...attempt, version: "0.2.2", startedAt: "2026-11-19T10:00:00.000Z", earlier: null, mine: false, confirmed: true },
       error: null,
     });
     // Another admin was faster with the same version: its failure still opens by itself here.
@@ -222,7 +296,34 @@ describe("install requests", () => {
 
   it("starts following a reported installation from the updater's clock", () => {
     const reported = status({ installing: { ...installing("requested"), startedAt: "2026-11-19T09:59:59.000Z" } });
-    expect(startWait("0.2.1", answer(reported), false, NOW)).toEqual(wait({ requestedAt: "2026-11-19T09:59:59.000Z", mine: false }));
+    expect(startWait("0.2.1", answer(reported), false, NOW)).toEqual(wait({ startedAt: "2026-11-19T09:59:59.000Z", mine: false }));
+  });
+
+  it("says at the deadline whether the installation did not start or could not be confirmed", () => {
+    const lost = wait({ startedAt: null, confirmed: false, giveUpAt: NOW + RECONCILE_MS, reason: "The library did not answer.", error: "The library answered with HTTP 502." });
+    expect(unconfirmedError(lost)).toEqual({ title: "The installation could not be confirmed", message: "The library answered with HTTP 502." });
+    expect(unconfirmedError({ ...lost, answered: true })).toEqual({ title: "The installation did not start", message: "The library did not answer." });
+    expect(unconfirmedError(wait({ confirmed: false, answered: true }))).toEqual({
+      title: "The installation did not start",
+      message: "The update service did not report an installation of 0.2.1.",
+    });
+  });
+});
+
+describe("Stop waiting", () => {
+  it("ignores the installation by its identity", () => {
+    const dismissed = dismissal(wait());
+    expect(isDismissed(dismissed, installing())).toBe(true);
+    expect(isDismissed(dismissed, { ...installing(), startedAt: "2026-11-19T10:30:00Z" })).toBe(false);
+    expect(isDismissed(dismissed, { ...installing(), version: "0.2.2" })).toBe(false);
+    expect(isDismissed(null, installing())).toBe(false);
+  });
+
+  it("without an identity, ignores the version from the attempt's start on", () => {
+    const dismissed = dismissal(wait({ startedAt: null, since: NOW + 700 }));
+    expect(isDismissed(dismissed, installing())).toBe(true);
+    expect(isDismissed(dismissed, { ...installing(), startedAt: "2026-11-19T10:00:02Z" })).toBe(true);
+    expect(isDismissed(dismissed, { ...installing(), startedAt: "2026-11-19T09:59:00Z" })).toBe(false);
   });
 });
 

@@ -149,6 +149,17 @@ describe("/api/admin/updates", () => {
     });
   });
 
+  it("passes a server error of the updater's install through, so that the browser looks for the installation", async () => {
+    const busy = "The deploy link did not answer.";
+    handler = (request, _body, response) => (request.url === "/v1/install" ? json(response, 503, { error: busy }) : json(response, 200, status({ available: release("0.2.1") })));
+    const response = await post("install", { version: "0.2.1" });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ app: { version: "0.2.0" }, reachable: true, updater: status({ available: release("0.2.1") }), error: busy });
+    // A refusal of the install stays 409.
+    handler = (request, _body, response) => (request.url === "/v1/install" ? json(response, 409, { error: "0.2.1 is not offered." }) : json(response, 200, status()));
+    expect((await post("install", { version: "0.2.1" })).status).toBe(409);
+  });
+
   it("answers reachable: false when no updater answers", async () => {
     mocks.updaterUrl = "http://127.0.0.1:9";
     for (const response of [await get(), await post("check"), await post("install", { version: "0.2.1" }), await post("channel", { channel: "stable" })]) {

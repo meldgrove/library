@@ -27,10 +27,13 @@ export interface InstallWait {
   version: string;
   /** The library's version when the attempt started (null in development). */
   from: string | null;
-  /** When the updater started it (its clock); null until an answer reports it. */
-  requestedAt: string | null;
-  /** `last.finishedAt` when the attempt started: that result belongs to an earlier installation. */
-  before: string | null;
+  /**
+   * `installing.startedAt` once an answer reported the installation (the
+   * updater's clock): with the version, the installation's identity.
+   */
+  startedAt: string | null;
+  /** The `last` of the newest status when the attempt started (the earlier result): never this attempt's. */
+  earlier: Status["last"];
   /** When the attempt started (the browser's clock, ms). */
   since: number;
   /** Asked for on this page, not by the updater or another admin. */
@@ -41,11 +44,18 @@ export interface InstallWait {
   giveUpAt: number | null;
   /** Why the install request got no clear answer. */
   reason: string | null;
-  /** The library did not answer at least once: it restarted. */
+  /** The last error while the page looked for it: of the install request, then of each status request. */
+  error: string | null;
+  /** A reachable status answered after the attempt started (without it, as long as it is not confirmed). */
+  answered: boolean;
+  /** No answer, a server error, or no updater at least once: the library or the updater restarted. */
   outage: boolean;
   /** The last request got no answer, or the updater did not answer. */
   restarting: boolean;
 }
+
+/** An installation an admin stopped waiting for: by its identity, or without one by its version and the attempt's start. */
+export type Dismissed = Pick<InstallWait, "version" | "startedAt" | "since">;
 
 export interface Failure {
   version: string;
@@ -57,9 +67,12 @@ export interface Failure {
 /** An answer of the routes under /api/admin/updates. */
 export type Fetched =
   | { kind: "answer"; httpStatus: number; body: UpdatesResponse }
-  /** No answer: a network error, a timeout, or a server error, as while the library restarts. */
-  | { kind: "down"; reason: string }
-  /** 401, 403, 404, or a redirect to the sign-in page: the session ended. */
+  /**
+   * No usable answer: a network error, a timeout, a server error, as while the
+   * library restarts, or a body that cannot be read (with its HTTP status).
+   */
+  | { kind: "down"; reason: string; httpStatus?: number }
+  /** 401, 403, 404, or the sign-in page (a redirect, or HTML instead of JSON): the session ended. */
   | { kind: "denied" };
 
 /** After this long without a result, the button says to check the server. */
@@ -78,6 +91,16 @@ export function reportedFailure(updater: Status | null): Failure | null {
   return { version: available.version, message: (last.version === available.version ? last.message : null) ?? available.failed };
 }
 
+/**
+ * A failure from this page whose version the updater no longer offers while
+ * it offers another: the offer shows, with the failure as a line in it.
+ */
+export function replacedFailure(failure: Failure | null, updater: Status | null): Failure | null {
+  if (!failure || !updater) return null;
+  const offered = [updater.available?.version, updater.attention?.version].filter((version) => version !== undefined);
+  return offered.length > 0 && !offered.includes(failure.version) ? failure : null;
+}
+
 export function buttonState(input: {
   response: UpdatesResponse | null;
   /** A check from this page runs. */
@@ -93,7 +116,7 @@ export function buttonState(input: {
   if (!response.reachable || !updater) return checking ? "checking" : "unreachable";
   if (updater.installing) return "installing";
   if (checking || updater.checking) return "checking";
-  if (failure || reportedFailure(updater)) return "failed";
+  if ((failure && !replacedFailure(failure, updater)) || reportedFailure(updater)) return "failed";
   // Also with automatic updates off: the updater still offers new versions.
   if (updater.available) return "available";
   if (updater.attention) return "attention";
@@ -127,18 +150,20 @@ export function runningVersion(response: UpdatesResponse | null): string | null 
   return response?.updater?.installed ?? response?.app.version ?? null;
 }
 
-/** An attempt from this page, remembered before its install request. */
+/** An attempt from this page, remembered before its install request, with the result known then. */
 export function newAttempt(version: string, response: UpdatesResponse | null, now: number): InstallWait {
   return {
     version,
     from: response?.app.version ?? null,
-    requestedAt: null,
-    before: response?.updater?.last?.finishedAt ?? null,
+    startedAt: null,
+    earlier: response?.updater?.last ?? null,
     since: now,
     mine: true,
     confirmed: false,
     giveUpAt: null,
     reason: null,
+    error: null,
+    answered: false,
     outage: false,
     restarting: false,
   };
@@ -149,7 +174,7 @@ export function startWait(version: string, response: UpdatesResponse, mine: bool
   const updater = response.updater;
   return {
     ...newAttempt(version, response, now),
-    requestedAt: updater?.installing?.version === version ? updater.installing.startedAt : null,
+    startedAt: updater?.installing?.version === version ? updater.installing.startedAt : null,
     mine,
     confirmed: true,
   };
@@ -158,44 +183,49 @@ export function startWait(version: string, response: UpdatesResponse, mine: bool
 /**
  * What the answer to an install request means for the attempt:
  *
- * - 202: the updater accepted it; follow it.
- * - Refused (4xx with an error, or the session ended): forget it and show
- *   why, unless the answer reports another installation (another admin or an
- *   automatic install was faster): follow that one instead.
- * - Anything else (no answer, a timeout, a server error, or no updater): the
- *   request may have reached the updater. Keep the attempt and look for it
- *   for RECONCILE_MS.
+ * - 202: the updater accepted it; follow it, also when the body cannot be read.
+ * - Refused (4xx, or the session ended): forget it and show why, unless the
+ *   answer reports another installation (another admin or an automatic
+ *   install was faster): follow that one instead.
+ * - Anything else (no answer, a timeout, a server error, an unreadable
+ *   answer, or no updater): the request may have reached the updater. Keep
+ *   the attempt and look for it until RECONCILE_MS after it started.
  */
 export function afterInstallAnswer(attempt: InstallWait, fetched: Fetched, now: number): { wait: InstallWait | null; error: string | null } {
   if (fetched.kind === "denied") return { wait: null, error: SIGNED_OUT };
-  if (fetched.kind === "answer") {
-    const { httpStatus, body } = fetched;
-    const updater = body.updater;
-    if (httpStatus === 202) {
-      const last = updater?.last;
-      const requestedAt =
-        updater?.installing?.version === attempt.version
-          ? updater.installing.startedAt
-          : last?.version === attempt.version && last.finishedAt !== attempt.before
-            ? last.finishedAt
-            : null;
-      return { wait: { ...attempt, confirmed: true, requestedAt }, error: null };
-    }
-    if (httpStatus >= 400 && httpStatus < 500) {
-      const installing = updater?.installing;
-      if (installing) return { wait: startWait(installing.version, body, installing.version === attempt.version, now), error: null };
-      return { wait: null, error: body.error ?? "The update service did not accept the installation." };
-    }
+  const body = fetched.kind === "answer" ? fetched.body : null;
+  const installing = body?.updater?.installing;
+  if (fetched.httpStatus === 202) {
+    return { wait: { ...attempt, confirmed: true, startedAt: installing?.version === attempt.version ? installing.startedAt : null }, error: null };
+  }
+  if (fetched.httpStatus !== undefined && fetched.httpStatus >= 400 && fetched.httpStatus < 500) {
+    if (body && installing) return { wait: startWait(installing.version, body, installing.version === attempt.version, now), error: null };
+    return { wait: null, error: (body ? body.error : fetched.kind === "down" ? fetched.reason : null) ?? "The update service did not accept the installation." };
   }
   const reason = fetched.kind === "down" ? fetched.reason : fetched.body.error;
-  return { wait: { ...attempt, giveUpAt: now + RECONCILE_MS, reason }, error: null };
+  const outage = fetched.kind === "down" || !fetched.body.reachable;
+  return { wait: { ...attempt, giveUpAt: attempt.since + RECONCILE_MS, reason, error: reason, outage, restarting: outage }, error: null };
 }
 
-/** The updater's result for the attempt: its version, finished after the attempt started. */
+/** Whole seconds, as the updater writes its times. */
+function wholeSeconds(ms: number): number {
+  return Math.floor(ms / 1_000) * 1_000;
+}
+
+function sameResult(a: Status["last"], b: Status["last"]): boolean {
+  return !!a && !!b && a.version === b.version && a.result === b.result && a.finishedAt === b.finishedAt;
+}
+
+/**
+ * The updater's result for the attempt, when it is fresh: for its version,
+ * not the earlier result, and finished at or after the installation started:
+ * `installing.startedAt` when an answer reported it, otherwise the attempt's
+ * start cut to whole seconds (the updater writes whole seconds).
+ */
 export function attemptResult(wait: InstallWait, updater: Status | null): Status["last"] {
   const last = updater?.last;
-  if (!last || last.version !== wait.version || last.finishedAt === wait.before) return null;
-  const start = wait.requestedAt === null ? wait.since : Date.parse(wait.requestedAt);
+  if (!last || last.version !== wait.version || sameResult(last, wait.earlier)) return null;
+  const start = wait.startedAt === null ? wholeSeconds(wait.since) : Date.parse(wait.startedAt);
   return Date.parse(last.finishedAt) >= start ? last : null;
 }
 
@@ -209,42 +239,67 @@ export type InstallOutcome =
 /**
  * Where the installation the page follows stands, from an answer to a
  * request sent after the attempt started. Only the updater concludes; while
- * it cannot be asked (it restarts too), the page waits. In this order:
+ * it cannot be asked (it restarts too), the page waits and counts an outage.
+ * In this order:
  *
- * 1. a result `failed` or `rolled-back` for the version: failed;
+ * 1. a fresh result `failed` or `rolled-back` for the version: failed;
  * 2. the updater still installs the version: waiting, even when the library
  *    already answers with it (on a server the result comes only after every
  *    service is healthy, and it may still roll back);
- * 3. a result `installed`: done;
- * 4. a result `accepted` (platform): done once the library runs the version,
- *    or, without a version (development), once it answered after an outage;
+ * 3. a fresh result `installed`: done;
+ * 4. a fresh result `accepted` (platform): done once the library runs the
+ *    version, or, without a version (development), once the updater answered
+ *    after an outage;
  * 5. nothing reports the installation any more and the library runs the
  *    version: done.
  */
 export function installOutcome(wait: InstallWait, response: UpdatesResponse): InstallOutcome {
   const updater = response.reachable ? response.updater : null;
-  if (!updater) return { kind: "waiting", wait: { ...wait, restarting: true } };
-  const current = { ...wait, restarting: false };
+  if (!updater) return { kind: "waiting", wait: { ...wait, outage: true, restarting: true, error: response.error ?? wait.error } };
+  const current = { ...wait, answered: true, restarting: false };
   const last = attemptResult(wait, updater);
   const installing = updater.installing;
   const version = response.app.version;
   if (last?.result === "failed" || last?.result === "rolled-back") return { kind: "failed", message: last.message };
   if (installing?.version === wait.version) {
-    return { kind: "waiting", wait: { ...current, confirmed: true, requestedAt: current.requestedAt ?? installing.startedAt } };
+    return { kind: "waiting", wait: { ...current, confirmed: true, startedAt: current.startedAt ?? installing.startedAt } };
   }
   if (last?.result === "installed") return { kind: "done" };
   if (last?.result === "accepted") {
     if (version === wait.version || (version === null && wait.outage)) return { kind: "done" };
-    return { kind: "waiting", wait: { ...current, confirmed: true, requestedAt: current.requestedAt ?? last.finishedAt } };
+    return { kind: "waiting", wait: { ...current, confirmed: true } };
   }
   if (version !== null && version === wait.version) return { kind: "done" };
   if (installing) return { kind: "other" };
   return { kind: "waiting", wait: current };
 }
 
-/** An attempt with no clear answer that no status reported in time: it did not start. */
+/** An attempt with no clear answer that no status reported in time: the page stops looking for it. */
 export function gaveUp(wait: InstallWait, now: number): boolean {
   return !wait.confirmed && wait.giveUpAt !== null && now >= wait.giveUpAt;
+}
+
+/**
+ * Why the page stopped looking for an attempt at its deadline: the updater
+ * answered without it, or it could not be asked.
+ */
+export function unconfirmedError(wait: InstallWait): { title: string; message: string } {
+  const unreported = `The update service did not report an installation of ${wait.version}.`;
+  return wait.answered
+    ? { title: "The installation did not start", message: wait.reason ?? unreported }
+    : { title: "The installation could not be confirmed", message: wait.error ?? unreported };
+}
+
+/** The identity to ignore after Stop waiting: kept on the attempt, so it works while the updater is unreachable. */
+export function dismissal(wait: InstallWait): Dismissed {
+  return { version: wait.version, startedAt: wait.startedAt, since: wait.since };
+}
+
+/** Whether a reported installation is the one an admin stopped waiting for. */
+export function isDismissed(dismissed: Dismissed | null, installing: Status["installing"]): boolean {
+  if (!dismissed || !installing || installing.version !== dismissed.version) return false;
+  if (dismissed.startedAt !== null) return installing.startedAt === dismissed.startedAt;
+  return Date.parse(installing.startedAt) >= wholeSeconds(dismissed.since);
 }
 
 export function isSlow(wait: InstallWait, now: number): boolean {

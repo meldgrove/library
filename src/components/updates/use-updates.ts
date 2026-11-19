@@ -5,12 +5,17 @@ import {
   afterInstallAnswer,
   channelError,
   checkError,
+  dismissal,
   gaveUp,
   installOutcome,
+  isDismissed,
   isSlow,
   newAttempt,
   RECONCILE_MS,
+  SLOW_INSTALL_MS,
   startWait,
+  unconfirmedError,
+  type Dismissed,
   type Failure,
   type Fetched,
   type InstallWait,
@@ -23,7 +28,8 @@ import { isUpdatesResponse, UPDATES_API, type Channel, type UpdatesResponse } fr
  * every 5 minutes, and when the window regains focus (at most once a minute);
  * it never checks for updates by itself. While it follows an installation, it
  * asks every 2 seconds and keeps asking while the library restarts
- * (docs/deployment.md, The update button).
+ * (docs/deployment.md, The update button). When the session ends, it stops
+ * asking until the next page load.
  */
 
 /** Why an action from this page failed, for the button's popover. */
@@ -68,6 +74,7 @@ const POLL_MS = 2_000;
 /** The browser's limits; the library's own calls to the updater take at most 3, 10 and 35 seconds. */
 const TIMEOUT_MS = { status: 10_000, install: 20_000, long: 45_000 } as const;
 const STORAGE_KEY = "library.update-install";
+const DISMISSED_KEY = "library.update-dismissed";
 
 let snapshot = INITIAL;
 const listeners = new Set<() => void>();
@@ -82,8 +89,23 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-/** Asks the library. "down": no answer, a server error, or no JSON, as while it restarts. */
+function seconds(ms: number): string {
+  const count = Math.max(1, Math.round(ms / 1_000));
+  return count === 1 ? "1 second" : `${count} seconds`;
+}
+
+/**
+ * Asks the library. "down": no answer, a server error, or a body that cannot
+ * be read, as while it restarts. "denied": the session ended, and the page
+ * stops asking by itself.
+ */
 async function request(path: string, timeoutMs: number, body?: Record<string, unknown>): Promise<Fetched> {
+  const fetched = await send(path, timeoutMs, body);
+  if (fetched.kind === "denied") signOut();
+  return fetched;
+}
+
+async function send(path: string, timeoutMs: number, body?: Record<string, unknown>): Promise<Fetched> {
   try {
     const response = await fetch(path, {
       method: body ? "POST" : "GET",
@@ -95,14 +117,17 @@ async function request(path: string, timeoutMs: number, body?: Record<string, un
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (response.type === "opaqueredirect") return { kind: "denied" };
-    const json: unknown = await response.json().catch(() => null);
-    if (response.status < 500 && isUpdatesResponse(json)) return { kind: "answer", httpStatus: response.status, body: json };
     // Admins only: anyone else, such as someone signed out, gets 404.
     if (response.status === 401 || response.status === 403 || response.status === 404) return { kind: "denied" };
-    return { kind: "down", reason: `The library answered with HTTP ${response.status}.` };
+    // The sign-in page of a proxy in front of the library instead of JSON; an error page (5xx) is an outage.
+    if (response.status < 500 && response.headers.get("content-type")?.includes("text/html")) return { kind: "denied" };
+    const json: unknown = await response.json().catch(() => null);
+    if (response.status < 500 && isUpdatesResponse(json)) return { kind: "answer", httpStatus: response.status, body: json };
+    const error = isUpdatesResponse(json) ? json.error : null;
+    return { kind: "down", httpStatus: response.status, reason: error ?? `The library answered with HTTP ${response.status}.` };
   } catch (error) {
     const timeout = error instanceof DOMException && error.name === "TimeoutError";
-    return { kind: "down", reason: timeout ? `The library did not answer within ${timeoutMs / 1_000} seconds.` : "The library did not answer." };
+    return { kind: "down", reason: timeout ? `The library did not answer within ${seconds(timeoutMs)}.` : "The library did not answer." };
   }
 }
 
@@ -123,12 +148,14 @@ function loadWait(): InstallWait | null {
     if (typeof wait?.version !== "string" || typeof wait.since !== "number") return null;
     const defaults: Omit<InstallWait, "version" | "since"> = {
       from: null,
-      requestedAt: null,
-      before: null,
+      startedAt: null,
+      earlier: null,
       mine: false,
       confirmed: true,
       giveUpAt: null,
       reason: null,
+      error: null,
+      answered: false,
       outage: false,
       restarting: false,
     };
@@ -138,33 +165,94 @@ function loadWait(): InstallWait | null {
   }
 }
 
+function saveDismissed(value: Dismissed | null): void {
+  try {
+    if (value) sessionStorage.setItem(DISMISSED_KEY, JSON.stringify(value));
+    else sessionStorage.removeItem(DISMISSED_KEY);
+  } catch {
+    // Without storage, the next page load follows that installation again.
+  }
+}
+
+function loadDismissed(): Dismissed | null {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(DISMISSED_KEY) ?? "null") as Partial<Dismissed> | null;
+    if (typeof value?.version !== "string" || typeof value.since !== "number") return null;
+    return { version: value.version, startedAt: typeof value.startedAt === "string" ? value.startedAt : null, since: value.since };
+  } catch {
+    return null;
+  }
+}
+
 let lastFetch = 0;
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
+/** Ends an attempt without a clear answer RECONCILE_MS after it started, whatever the requests return. */
+let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+/** Shows Stop waiting after SLOW_INSTALL_MS, also while no request returns. */
+let slowTimer: ReturnType<typeof setTimeout> | undefined;
 /** Components that use the status; the page asks only while there is one. */
 let users = 0;
+/** The session ended: no request by itself until the next page load. */
+let signedOut = false;
+/** Ends the requests every 5 minutes and on focus. */
+let stopPolling: (() => void) | undefined;
 /** An installation an admin stopped waiting for: not followed again. */
-let dismissed: { version: string; startedAt: string | null } | null = null;
+let dismissed: Dismissed | null = null;
 
 function setWait(wait: InstallWait | null): void {
   saveWait(wait);
   update({ wait, slow: wait ? isSlow(wait, Date.now()) : false });
+  armTimers(wait);
+}
+
+/** The timers of the installation the page follows, only while a component uses the status. */
+function armTimers(wait: InstallWait | null): void {
+  clearTimeout(deadlineTimer);
+  clearTimeout(slowTimer);
+  deadlineTimer = slowTimer = undefined;
+  if (!wait || users === 0) return;
+  if (!wait.confirmed && wait.giveUpAt !== null && !signedOut) {
+    deadlineTimer = setTimeout(() => deadline(wait.since), Math.max(0, wait.giveUpAt - Date.now()));
+  }
+  if (!snapshot.slow) {
+    slowTimer = setTimeout(() => {
+      if (snapshot.wait?.since === wait.since) update({ slow: true });
+    }, Math.max(0, wait.since + SLOW_INSTALL_MS - Date.now()) + 1);
+  }
 }
 
 /** The next request while the page follows an installation, only while a component uses the status. */
 function schedulePoll(): void {
   clearTimeout(pollTimer);
-  pollTimer = users > 0 && snapshot.wait ? setTimeout(() => void poll(), POLL_MS) : undefined;
+  pollTimer = users > 0 && snapshot.wait && !signedOut ? setTimeout(() => void poll(), POLL_MS) : undefined;
 }
 
-function didNotStart(wait: InstallWait): ActionError {
-  return { title: "The installation did not start", message: wait.reason ?? `The update service did not report an installation of ${wait.version}.` };
+/** No status reported the attempt in time: forget it, say why, and show what runs. */
+function deadline(since: number): void {
+  const wait = snapshot.wait;
+  if (!wait || wait.since !== since || wait.confirmed) return;
+  // A timer may fire a moment early.
+  if (!gaveUp(wait, Date.now())) return armTimers(wait);
+  clearTimeout(pollTimer);
+  setWait(null);
+  update({ actionError: unconfirmedError(wait) });
+  void refresh();
+}
+
+/** The session ended: stop every request the page sends by itself; an attempt stays for the next page load. */
+function signOut(): void {
+  signedOut = true;
+  clearTimeout(pollTimer);
+  clearTimeout(deadlineTimer);
+  pollTimer = deadlineTimer = undefined;
+  stopPolling?.();
+  stopPolling = undefined;
 }
 
 /** Follows an installation that an answer reports. */
 function adopt(body: UpdatesResponse): void {
   const installing = body.updater?.installing;
-  if (!installing || snapshot.wait || snapshot.done) return;
-  if (dismissed?.version === installing.version && (dismissed.startedAt === null || dismissed.startedAt === installing.startedAt)) return;
+  if (!installing || snapshot.wait || snapshot.done || isDismissed(dismissed, installing)) return;
   setWait(startWait(installing.version, body, false, Date.now()));
   schedulePoll();
 }
@@ -190,11 +278,6 @@ function receive(body: UpdatesResponse, sentAt: number): void {
       setWait(null);
       return adopt(body);
     case "waiting":
-      if (gaveUp(outcome.wait, Date.now())) {
-        setWait(null);
-        update({ actionError: didNotStart(outcome.wait) });
-        return adopt(body);
-      }
       setWait(outcome.wait);
       schedulePoll();
   }
@@ -203,9 +286,12 @@ function receive(body: UpdatesResponse, sentAt: number): void {
 /** One request while the page follows an installation. */
 async function poll(): Promise<void> {
   const wait = snapshot.wait;
-  if (!wait) return;
+  if (!wait || signedOut) return;
+  // An attempt without a clear answer: each request gets at most the time left.
+  const left = !wait.confirmed && wait.giveUpAt !== null ? wait.giveUpAt - Date.now() : TIMEOUT_MS.status;
+  if (left <= 0) return deadline(wait.since);
   const sentAt = Date.now();
-  const fetched = await request(UPDATES_API, TIMEOUT_MS.status);
+  const fetched = await request(UPDATES_API, Math.min(TIMEOUT_MS.status, left));
   lastFetch = Date.now();
   const current = snapshot.wait;
   // The page stopped following it, or follows another one.
@@ -213,22 +299,15 @@ async function poll(): Promise<void> {
   if (fetched.kind === "answer") return receive(fetched.body, sentAt);
   if (fetched.kind === "denied") {
     // Keep the attempt: the next page load after signing in follows it again.
-    clearTimeout(pollTimer);
     update({ actionError: { title: "Your session ended", message: "Sign in again to follow the installation." } });
     return;
   }
-  const next = { ...current, outage: true, restarting: true };
-  if (gaveUp(next, Date.now())) {
-    setWait(null);
-    update({ actionError: didNotStart(next) });
-    return;
-  }
-  setWait(next);
+  setWait({ ...current, outage: true, restarting: true, error: fetched.reason });
   schedulePoll();
 }
 
 async function refresh(): Promise<void> {
-  if (snapshot.wait) return;
+  if (snapshot.wait || signedOut) return;
   const sentAt = Date.now();
   lastFetch = sentAt;
   const fetched = await request(UPDATES_API, TIMEOUT_MS.status);
@@ -252,6 +331,7 @@ async function install(version: string): Promise<void> {
   // Remembered before the request: the deployment may restart the library before it answers.
   const attempt = newAttempt(version, snapshot.response, Date.now());
   dismissed = null;
+  saveDismissed(null);
   setWait(attempt);
   update({ requesting: true, actionError: null, failure: null });
   const fetched = await request(`${UPDATES_API}/install`, TIMEOUT_MS.install, { version });
@@ -282,7 +362,8 @@ async function setChannel(channel: Channel): Promise<string | null> {
 function stopWaiting(): void {
   const wait = snapshot.wait;
   if (!wait) return;
-  dismissed = { version: wait.version, startedAt: wait.requestedAt };
+  dismissed = dismissal(wait);
+  saveDismissed(dismissed);
   clearTimeout(pollTimer);
   setWait(null);
   update({ actionError: null });
@@ -295,17 +376,16 @@ function dismissFailure(): void {
 
 export const updates = { refresh, check, install, setChannel, stopWaiting, dismissFailure };
 
-let stopPolling: (() => void) | undefined;
-
 /** Starts asking when the first component needs the status; stops after the last. */
-function start(): () => void {
+export function start(): () => void {
   users += 1;
-  if (users === 1) {
+  if (users === 1 && !signedOut) {
+    dismissed ??= loadDismissed();
     let resumed = snapshot.wait;
     if (!resumed) {
       const stored = loadWait();
-      // A page left before its install request was answered: look for that installation.
-      resumed = stored && !stored.confirmed && stored.giveUpAt === null ? { ...stored, giveUpAt: Date.now() + RECONCILE_MS } : stored;
+      // A page left before its install request was answered: look for that installation until its deadline.
+      resumed = stored && !stored.confirmed && stored.giveUpAt === null ? { ...stored, giveUpAt: stored.since + RECONCILE_MS } : stored;
     }
     if (resumed) {
       setWait(resumed);
@@ -328,18 +408,21 @@ function start(): () => void {
     users -= 1;
     if (users === 0) {
       stopPolling?.();
+      stopPolling = undefined;
       clearTimeout(pollTimer);
       pollTimer = undefined;
+      armTimers(null);
     }
   };
+}
+
+/** The status as it is now. */
+export function readUpdates(): UpdatesSnapshot {
+  return snapshot;
 }
 
 /** The shared update status; starts asking while a component uses it. */
 export function useUpdates(): UpdatesSnapshot {
   useEffect(() => start(), []);
-  return useSyncExternalStore(
-    subscribe,
-    () => snapshot,
-    () => INITIAL,
-  );
+  return useSyncExternalStore(subscribe, readUpdates, () => INITIAL);
 }
