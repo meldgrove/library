@@ -6,7 +6,7 @@ import { documentType, note, noteTag, noteVersion, notificationDelivery, person,
 import { errorMessage, logger } from "@/lib/logger";
 import { requestWebhookSync } from "@/lib/webhook/sync";
 import type { Storage } from "@/lib/storage";
-import { canEditNote, visibleNotes, type Viewer } from "./access";
+import { canEditNote, visibleNotes, visibleTagProposals, type Viewer } from "./access";
 import { NOTE_LIMITS, notePath, noteRef } from "./constants";
 import type { NoteFormInput } from "./note-input";
 import { noteSearchText, snapshotOf } from "./note-text";
@@ -375,7 +375,11 @@ export async function stewardQueues(db: Database, viewer: Viewer, now: Date = ne
       .where(and(visibleNotes(viewer), eq(note.status, "published"), isNull(note.checkedAt), ne(note.visibility, "private")))
       .orderBy(desc(note.publishedAt))
       .limit(50),
-    db.select({ value: sql<number>`count(*)::int` }).from(tagProposal).where(eq(tagProposal.status, "pending")),
+    db
+      .select({ value: sql<number>`count(*)::int` })
+      .from(tagProposal)
+      .leftJoin(note, eq(note.id, tagProposal.noteId))
+      .where(and(eq(tagProposal.status, "pending"), visibleTagProposals(viewer))),
   ]);
   return { onHold, overdue, unchecked, pendingProposals: proposals?.value ?? 0 };
 }

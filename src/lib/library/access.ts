@@ -1,5 +1,5 @@
-import { and, eq, or, sql, type SQL } from "drizzle-orm";
-import { note } from "@/lib/db/schema";
+import { and, eq, isNull, or, sql, type SQL } from "drizzle-orm";
+import { note, tagProposal } from "@/lib/db/schema";
 import type { NoteStatus, Visibility } from "./constants";
 
 /*
@@ -48,6 +48,11 @@ export function visibleNotes(viewer: Viewer): SQL {
   const forAll = and(published, eq(note.visibility, "all"));
   const forTeam = viewer.teamId ? and(published, eq(note.visibility, "team"), eq(note.teamId, viewer.teamId)) : undefined;
   return or(own, forAll, forTeam)!;
+}
+
+/** Use with tag proposals left joined to their notes. Standalone proposals are visible. */
+export function visibleTagProposals(viewer: Viewer): SQL {
+  return or(isNull(tagProposal.noteId), visibleNotes(viewer))!;
 }
 
 /** The viewer behind a request. */

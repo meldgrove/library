@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { requireAdmin } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { notePath, noteRef } from "@/lib/library/constants";
+import { viewerOf } from "@/lib/library/access";
 import { getTaxonomy } from "@/lib/library/taxonomy";
 import {
   acceptTagProposalAction,
@@ -31,8 +32,8 @@ export const metadata: Metadata = { title: "Taxonomy" };
  * deactivated tag stays on its notes but is no longer offered.
  */
 export default async function TaxonomyPage() {
-  await requireAdmin();
-  const taxonomy = await getTaxonomy(getDb());
+  const { person } = await requireAdmin();
+  const taxonomy = await getTaxonomy(getDb(), viewerOf(person));
   const activeTags = taxonomy.tags.filter((t) => t.isActive);
   const clusterName = new Map(taxonomy.clusters.map((cluster) => [cluster.id, cluster.name]));
 

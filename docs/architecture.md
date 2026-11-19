@@ -157,6 +157,10 @@ uploads of it are not drafted again. Deleting removes the note, its source,
 every upload of it, and the stored originals; the audit log keeps the note's
 number and the reason.
 
+Stewards see tag proposals and tag usage counts for notes they may see.
+Accepting or rejecting a proposal resolves other pending proposals with the
+same name only when the steward can see their notes.
+
 Owners get a reminder after a week; stewards hear of drafts open after 30
 days. The **Steward** page lists uploads on hold, overdue drafts, and
 published notes not yet checked.
