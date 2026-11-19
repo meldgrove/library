@@ -312,6 +312,23 @@ const errorReportingSchema = z.object({
   SENTRY_RELEASE: optional(z.string()),
 });
 
+/** The update service: the `updater` service of compose.yaml, unless UPDATER_URL says otherwise. */
+export const DEFAULT_UPDATER_URL = "http://updater:8080";
+
+/**
+ * The update button asks the Meldgrove Updater at UPDATER_URL. Unset means
+ * DEFAULT_UPDATER_URL. Unlike other variables, an empty value is not unset:
+ * it switches the update button off (`null`).
+ */
+const updaterSchema = z.object({
+  UPDATER_URL: z
+    .preprocess(
+      (value) => (value === undefined ? DEFAULT_UPDATER_URL : typeof value === "string" ? value.trim() : value),
+      z.string().refine((value) => value === "" || httpUrl.safeParse(value).success, "must be a URL such as http://updater:8080, or empty to switch the update button off"),
+    )
+    .transform((value) => (value === "" ? null : withoutTrailingSlash(value))),
+});
+
 export type DatabaseConfig = z.infer<typeof databaseSchema>;
 export type AuthConfig = z.infer<typeof authSchema>;
 export type DirectoryConfig = z.infer<typeof directorySchema>;
@@ -327,6 +344,7 @@ export type ErrorReportingConfig = z.infer<typeof errorReportingSchema>;
 export type SlackIntakeConfig = z.infer<typeof slackIntakeSchema>;
 export type DigestConfig = z.infer<typeof digestSchema>;
 export type EmailIntakeConfig = z.infer<typeof emailIntakeSchema>;
+export type UpdaterConfig = z.infer<typeof updaterSchema>;
 
 export class ConfigError extends Error {
   constructor(issues: z.core.$ZodIssue[]) {
@@ -398,6 +416,10 @@ export function parseEmailIntakeConfig(env: Env = process.env): EmailIntakeConfi
   return parse(emailIntakeSchema, env);
 }
 
+export function parseUpdaterConfig(env: Env = process.env): UpdaterConfig {
+  return parse(updaterSchema, env);
+}
+
 function validate(schemas: readonly z.ZodType[], env: Env): void {
   const issues: z.core.$ZodIssue[] = [];
   const withDefaultValues = withDefaults(env);
@@ -410,7 +432,7 @@ function validate(schemas: readonly z.ZodType[], env: Env): void {
 
 /** Validates every variable the web process needs. Called once at startup. */
 export function validateWebConfig(env: Env = process.env): void {
-  validate([databaseSchema, authSchema, directorySchema, storageSchema, uploadSchema, slackIntakeSchema, errorReportingSchema], env);
+  validate([databaseSchema, authSchema, directorySchema, storageSchema, uploadSchema, slackIntakeSchema, errorReportingSchema, updaterSchema], env);
 }
 
 /** Validates every variable the worker needs. */
@@ -447,6 +469,7 @@ let errorReportingConfig: ErrorReportingConfig | undefined;
 let slackIntakeConfig: SlackIntakeConfig | undefined;
 let digestConfig: DigestConfig | undefined;
 let emailIntakeConfig: EmailIntakeConfig | undefined;
+let updaterConfig: UpdaterConfig | undefined;
 
 export function getDatabaseConfig(): DatabaseConfig {
   databaseConfig ??= parseDatabaseConfig();
@@ -516,4 +539,9 @@ export function getDigestConfig(): DigestConfig {
 export function getEmailIntakeConfig(): EmailIntakeConfig {
   emailIntakeConfig ??= parseEmailIntakeConfig();
   return emailIntakeConfig;
+}
+
+export function getUpdaterConfig(): UpdaterConfig {
+  updaterConfig ??= parseUpdaterConfig();
+  return updaterConfig;
 }
