@@ -4,6 +4,7 @@ import { getCurrentPerson } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { note, source } from "@/lib/db/schema";
 import { creatingSubmitterOfSource, noteSourceFileName, viewerOf, visibleNotes } from "@/lib/library/access";
+import { ACCEPTED_TYPES } from "@/lib/library/file-types";
 import { getStorage } from "@/lib/storage";
 
 /*
@@ -36,8 +37,9 @@ export async function GET(_request: Request, { params }: RouteContext<"/api/orig
 
   const bytes = (await getStorage()?.get(row.storageKey)) ?? null;
   if (!bytes) return notFound();
-  const pdf = row.mimeType === "application/pdf";
-  const fileName = row.fileName ?? (pdf ? "source.pdf" : "source");
+  const pdf = row.mimeType === ACCEPTED_TYPES.pdf.mimeType;
+  const extension = Object.values(ACCEPTED_TYPES).find(({ mimeType }) => mimeType === row.mimeType)?.extensions[0] ?? "";
+  const fileName = row.fileName ?? `source${extension}`;
   return new Response(Buffer.from(bytes), {
     headers: {
       "content-type": pdf ? "application/pdf" : "application/octet-stream",

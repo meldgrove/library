@@ -105,5 +105,5 @@ it("uses a neutral filename when someone else drafts a note from the same bytes"
   vi.mocked(getCurrentPerson).mockResolvedValue(people.dan);
   const downloaded = await GET(new Request("https://library.example.org"), { params: Promise.resolve({ sourceId: first.sourceId }) });
   expect(downloaded.status).toBe(200);
-  expect(downloaded.headers.get("content-disposition")).toContain('filename="source"');
+  expect(downloaded.headers.get("content-disposition")).toContain('filename="source.txt"');
 });
