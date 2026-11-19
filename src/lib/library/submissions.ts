@@ -130,12 +130,27 @@ export async function submitLink(db: Database | Transaction, input: SubmitLinkIn
   });
 }
 
-/** Older workers stored raw provider errors in these reasons. */
+export const UPLOAD_PROCESSING_ERROR = "The upload could not be processed.";
+
+/** Older workers appended raw errors to these user-facing prefixes. */
+const legacyErrorCopy = [
+  ["The AI model could not be reached: ", "The AI draft could not be completed."],
+  ["The AI draft failed: The AI model declined to draft this source (", "The AI draft failed: The AI model declined to draft this source."],
+  ["Unexpected error: ", UPLOAD_PROCESSING_ERROR],
+  ["Text recognition (OCR) failed: ", "Text recognition (OCR) failed."],
+  ["The Word file could not be read: ", "The Word file could not be read."],
+  ["The PDF could not be read: ", "The PDF could not be read."],
+  ["The download failed: ", "The download failed."],
+  ["The site could not be reached: ", "The site could not be reached."],
+] as const;
+
+export function safeSubmissionMessage(text: string): string {
+  return legacyErrorCopy.find(([prefix]) => text.startsWith(prefix))?.[1] ?? text;
+}
+
 export const safeSubmissionReason = sql<string | null>`case
   when ${submission.status} = 'duplicate' then ${DUPLICATE_SUBMISSION_REASON}
-  when ${submission.statusReason} like 'The AI model could not be reached: %' then 'The AI draft could not be completed.'
-  when ${submission.statusReason} like 'The AI draft failed: The AI model declined to draft this source (%' then
-    'The AI draft failed: The AI model declined to draft this source.'
+  ${sql.join(legacyErrorCopy.map(([prefix, message]) => sql`when ${submission.statusReason} like ${prefix + "%"} then ${message}`), sql` `)}
   else ${submission.statusReason} end`;
 
 /** A person's uploads, newest first, with their notes when the person can see them. */

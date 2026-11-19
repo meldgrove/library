@@ -81,6 +81,25 @@ describe("dispatch to an email address", () => {
     expect(sent[0]!.text.split("\n")[0]).toBe("Hello Ada Author,");
   });
 
+  it("scrubs raw errors from parked-upload messages queued by an older worker", async () => {
+    await db.update(person).set({ slackUserId: "U0ADA" }).where(eq(person.id, seed.people.ada.id));
+    await notifyPerson(db, {
+      event: "parked",
+      subjectKey: "upload",
+      recipientId: seed.people.ada.id,
+      channel: "slack",
+      message: {
+        subject: "Your upload could not be drafted",
+        title: "Your upload could not be drafted",
+        text: "The AI model could not be reached: private provider detail. A maintainer will look at it.",
+        path: "/uploads",
+      },
+    });
+    expect(await dispatchDue(db, transports())).toMatchObject({ sent: 1 });
+    expect(slackPosts[0]?.text).toContain("The AI draft could not be completed.");
+    expect(slackPosts[0]?.text).not.toContain("private provider detail");
+  });
+
   it("sends a generic update for duplicate uploads queued by an older worker", async () => {
     await db.update(person).set({ slackUserId: "U0ADA" }).where(eq(person.id, seed.people.ada.id));
     await notifyPerson(db, {

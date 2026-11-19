@@ -17,6 +17,7 @@ import { storeOriginal } from "./originals";
 import { describeFindings, screenText } from "./screen";
 import { draftLists } from "./taxonomy";
 import { noteSearchText, snapshotOf } from "./note-text";
+import { safeSubmissionMessage, UPLOAD_PROCESSING_ERROR } from "./submissions";
 
 /*
  * The worker's way for one upload, in a fixed order:
@@ -98,7 +99,7 @@ async function textOfLink(deps: PipelineDeps, row: SourceRow, claimed: Claimed):
   try {
     fetched = await fetchLink(row.url!, { maxBytes: deps.maxBytes, allowPrivateAddresses: deps.allowPrivateLinks });
   } catch (error) {
-    if (error instanceof LinkError) throw new Stop("parked", error.message);
+    if (error instanceof LinkError) throw new Stop("parked", safeSubmissionMessage(error.message));
     throw error;
   }
   const type = detectFileType(fetched.bytes, new URL(fetched.url).pathname, fetched.contentType);
@@ -154,7 +155,7 @@ async function textOfLink(deps: PipelineDeps, row: SourceRow, claimed: Claimed):
   try {
     return { extracted: await extractText(fetched.bytes, type, deps.ocr), sourceId };
   } catch (error) {
-    if (error instanceof ExtractionError) throw new Stop("parked", error.message);
+    if (error instanceof ExtractionError) throw new Stop("parked", safeSubmissionMessage(error.message));
     throw error;
   }
 }
@@ -191,7 +192,7 @@ async function ensureText(deps: PipelineDeps, claimed: Claimed): Promise<{ text:
     try {
       extracted = await extractText(bytes, type, deps.ocr);
     } catch (error) {
-      if (error instanceof ExtractionError) throw new Stop("parked", error.message);
+      if (error instanceof ExtractionError) throw new Stop("parked", safeSubmissionMessage(error.message));
       throw error;
     }
   }
@@ -417,7 +418,7 @@ export async function processNext(deps: PipelineDeps, now: Date = new Date()): P
       log.info({ status: error.status }, "submission stopped");
       return stop(deps, claimed, error, now);
     }
-    const reason = error instanceof Retry ? error.reason : `Unexpected error: ${errorMessage(error)}`;
+    const reason = error instanceof Retry ? error.reason : UPLOAD_PROCESSING_ERROR;
     if (claimed.attempts >= MAX_ATTEMPTS) {
       log.error({ error: reason }, "submission parked after repeated errors");
       return stop(deps, claimed, new Stop("parked", reason.slice(0, 500)), now);
