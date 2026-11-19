@@ -78,7 +78,8 @@ export function createAuth({ config, directory, db }: CreateAuthOptions) {
       cookiePrefix: "library",
       useSecureCookies: config.LIBRARY_BASE_URL.startsWith("https://"),
     },
-    onAPIError: { errorURL: `${config.LIBRARY_BASE_URL}/login` },
+    // The route logs unexpected errors using the application serializer.
+    onAPIError: { errorURL: `${config.LIBRARY_BASE_URL}/login`, throw: true },
     databaseHooks: {
       account: {
         create: { after: async (account, context) => rememberLoginAccount(context, account) },
