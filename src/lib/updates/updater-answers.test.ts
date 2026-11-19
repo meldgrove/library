@@ -2,10 +2,14 @@ import { readdirSync, readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
+import { buttonState, parseUpdatesResponse, type ButtonState } from "@meldgrove/ui/updates/core";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { buttonState, type ButtonState } from "./state";
 
-/* Answers captured from Meldgrove Updater 0.2 (tests/fixtures/updater-0.2), as the API sends them. */
+/*
+ * Answers captured from Meldgrove Updater 0.2 (tests/fixtures/updater-0.2), as
+ * the API sends them, through the library's updater client and the update
+ * button of @meldgrove/ui.
+ */
 
 const config = vi.hoisted(() => ({ UPDATER_URL: null as string | null }));
 
@@ -54,11 +58,11 @@ describe("callUpdater", () => {
   });
 });
 
-describe("buttonState of the samples", () => {
+describe("the update button with the samples", () => {
   it.each([
     ["status-off-available-attention.json", "available"],
     ["status-host-available.json", "available"],
-    ["status-platform-locked.json", "up-to-date"],
+    ["status-platform-locked.json", "current"],
     ["status-installing.json", "installing"],
     ["status-failed.json", "failed"],
     ["status-preview.json", "failed"],
@@ -66,6 +70,9 @@ describe("buttonState of the samples", () => {
   ] satisfies [string, ButtonState][])("%s is %s", async (name, expected) => {
     answering = name;
     const { body } = await callUpdater(updaterCalls.status());
-    expect(buttonState({ response: body, checking: false, wait: null, failure: null })).toBe(expected);
+    // What GET /api/admin/updates sends, as the button reads it.
+    const response = parseUpdatesResponse(JSON.parse(JSON.stringify(body)));
+    expect(response).not.toBeNull();
+    expect(buttonState(response!, { checking: false, pending: null })).toBe(expected);
   });
 });

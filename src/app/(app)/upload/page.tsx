@@ -1,7 +1,7 @@
+import { Card, CardContent } from "@meldgrove/ui/card";
 import type { Metadata } from "next";
 import { UploadForm } from "@/components/library/upload-form";
 import { PageHeader } from "@/components/page-header";
-import { Card, CardContent } from "@/components/ui/card";
 import { requireUser } from "@/lib/auth/session";
 import { getStorageConfig, getUploadConfig } from "@/lib/config";
 import { NOTE_LIMITS, UPLOAD_CONFIRMATION, UPLOAD_RULES } from "@/lib/library/constants";

@@ -1,13 +1,12 @@
 /*
  * The HTTP API of Meldgrove Updater 0.2 and the library's answers to the
- * update button. Every Meldgrove app answers the same way; change them only
- * together with the updater. Used by the server and the browser: no imports.
+ * update button and the Updates card (`@meldgrove/ui/updates`). Every
+ * Meldgrove app answers the same way; change them only together with the
+ * updater. Used by the server and the browser: no imports.
  */
 
 export const CHANNELS = ["stable", "preview"] as const;
 export type Channel = (typeof CHANNELS)[number];
-
-export const CHANNEL_LABELS: Record<Channel, string> = { stable: "Stable", preview: "Preview" };
 
 /** A release (0.2.1) or a preview (0.2.1-preview.3). */
 export const VERSION_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(-preview\.[0-9]+)?$/;
@@ -88,10 +87,4 @@ export interface UpdatesResponse {
   updater: Status | null;
   /** Why the updater refused or could not be reached. */
   error: string | null;
-}
-
-export function isUpdatesResponse(value: unknown): value is UpdatesResponse {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Partial<UpdatesResponse>;
-  return typeof candidate.reachable === "boolean" && typeof candidate.app === "object" && candidate.app !== null && "updater" in candidate;
 }

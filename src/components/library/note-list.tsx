@@ -1,7 +1,7 @@
+import { Badge } from "@meldgrove/ui/badge";
 import { BookOpen, FileText, Globe, Landmark, Newspaper, Presentation, ScrollText, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { CheckedBadge } from "@/components/library/note-view";
-import { Badge } from "@/components/ui/badge";
 import type { DateFormatter } from "@/lib/format";
 import { notePath, noteRef, VISIBILITY_LABELS, type Visibility } from "@/lib/library/constants";
 

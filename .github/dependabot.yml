@@ -7,15 +7,20 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    # Let new releases settle before they are proposed.
+    # Let new releases settle before they are proposed; the shared Meldgrove
+    # packages come at once, in a pull request of their own.
     cooldown:
       default-days: 7
+      exclude: ["@meldgrove/*"]
     commit-message:
       prefix: chore
       include: scope
     groups:
+      meldgrove-ui:
+        patterns: ["@meldgrove/*"]
       npm-minor-and-patch:
         patterns: ["*"]
+        exclude-patterns: ["@meldgrove/*"]
         update-types: [minor, patch]
     ignore:
       # The types follow the Node.js major (engines in package.json).

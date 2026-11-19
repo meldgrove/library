@@ -1,9 +1,9 @@
 "use client";
 
+import { Button } from "@meldgrove/ui/button";
+import { FieldError } from "@meldgrove/ui/field";
+import { Input } from "@meldgrove/ui/input";
 import { useFormAction } from "@/components/form/use-form-action";
-import { Button } from "@/components/ui/button";
-import { FieldError } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
 import type { FormState } from "@/lib/form-state";
 
 /** The Slack channel that gets a team's weekly digest; empty for none. */

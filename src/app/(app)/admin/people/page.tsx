@@ -1,9 +1,9 @@
+import { Badge } from "@meldgrove/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@meldgrove/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@meldgrove/ui/table";
 import type { Metadata } from "next";
 import { ActionButton, InvitePersonForm, PersonForm, RoleForm } from "@/components/admin/directory-forms";
 import { PageHeader } from "@/components/page-header";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ROLE_HELP, ROLE_LABELS } from "@/lib/auth/roles";
 import { requireAdmin } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";

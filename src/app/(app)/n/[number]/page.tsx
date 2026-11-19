@@ -1,3 +1,4 @@
+import { Button } from "@meldgrove/ui/button";
 import { Pencil } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -7,7 +8,6 @@ import { DeleteNoteForm } from "@/components/library/delete-note-form";
 import { NoteReview } from "@/components/library/note-review";
 import { NoteView } from "@/components/library/note-view";
 import { PageHeader } from "@/components/page-header";
-import { Button } from "@/components/ui/button";
 import { canMaintain } from "@/lib/auth/roles";
 import { getFormatter, requireUser } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";

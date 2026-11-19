@@ -1,13 +1,13 @@
+import { Alert, AlertDescription } from "@meldgrove/ui/alert";
+import { Badge } from "@meldgrove/ui/badge";
+import { Button } from "@meldgrove/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@meldgrove/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@meldgrove/ui/table";
+import { UpdatesSettings } from "@meldgrove/ui/updates";
 import { CircleAlert, Users, UsersRound } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { UpdateSettings } from "@/components/updates/update-settings";
 import { getFormatter, requireAdmin } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { getDirectory } from "@/lib/directory/directory";
@@ -339,7 +339,8 @@ export default async function AdminPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <UpdateSettings />
+          {/* The status comes from the UpdatesProvider in the layout. */}
+          <UpdatesSettings />
         </CardContent>
       </Card>
 

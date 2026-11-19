@@ -1,8 +1,8 @@
+import { Button } from "@meldgrove/ui/button";
+import { Card, CardContent, CardHeader } from "@meldgrove/ui/card";
 import type { Metadata } from "next";
 import { signOutAction } from "@/app/actions";
 import { Logo } from "@/components/logo";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 export const metadata: Metadata = { title: "No access" };
 

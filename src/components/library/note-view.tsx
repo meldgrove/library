@@ -1,7 +1,7 @@
+import { Badge } from "@meldgrove/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@meldgrove/ui/card";
 import { ExternalLink, FileText, Quote, ShieldCheck, Sparkles, TriangleAlert } from "lucide-react";
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { DateFormatter } from "@/lib/format";
 import { VISIBILITY_LABELS } from "@/lib/library/constants";
 import type { NoteDetail } from "@/lib/library/notes";
