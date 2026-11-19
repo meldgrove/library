@@ -1,15 +1,16 @@
-import { and, eq, exists, isNull, or } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import { canMaintain } from "@/lib/auth/roles";
 import { getCurrentPerson } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
-import { note, source, submission } from "@/lib/db/schema";
+import { note, source } from "@/lib/db/schema";
 import { creatingSubmitterOfSource, viewerOf, visibleNotes } from "@/lib/library/access";
 import { getStorage } from "@/lib/storage";
 
 /*
  * The original file follows its note's visibility. Before a note exists,
- * the file is available to its uploader and maintainers. PDFs open in the browser; every other file is downloaded. The
- * sandbox policy keeps a crafted file from running scripts on this origin.
+ * the file is available to the first uploader and maintainers. PDFs open in
+ * the browser; other files are downloaded. The sandbox policy keeps a
+ * crafted file from running scripts on this origin.
  */
 
 const notFound = () => new Response("Not found", { status: 404 });
@@ -20,21 +21,16 @@ export async function GET(_request: Request, { params }: RouteContext<"/api/orig
   const person = await getCurrentPerson();
   if (!person) return new Response("Sign in first", { status: 401 });
   const { sourceId } = await params;
-  if (!/^[0-9a-f-]{36}$/i.test(sourceId)) return notFound();
+  if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(sourceId)) return notFound();
   const db = getDb();
-  const uploadedFile = db.select({ id: submission.id }).from(submission)
-    .where(and(eq(submission.sourceId, source.id), eq(submission.submitterId, person.id)));
-  const originalUploader = or(
-    and(eq(source.kind, "file"), exists(uploadedFile)),
-    eq(creatingSubmitterOfSource(db), person.id),
-  );
+  const beforeNote = and(isNull(note.id), canMaintain(person.role) ? undefined : eq(creatingSubmitterOfSource(db), person.id));
   const [row] = await db
     .select({ storageKey: source.storageKey, mimeType: source.mimeType, fileName: source.fileName })
     .from(source)
     .leftJoin(note, eq(note.sourceId, source.id))
     .where(and(
       eq(source.id, sourceId),
-      or(visibleNotes(viewerOf(person)), and(isNull(note.id), canMaintain(person.role) ? undefined : originalUploader)),
+      or(visibleNotes(viewerOf(person)), beforeNote),
     ));
   if (!row?.storageKey) return notFound();
 

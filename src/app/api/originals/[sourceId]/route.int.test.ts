@@ -7,7 +7,7 @@ import { viewerOf } from "@/lib/library/access";
 import { createFakeModel } from "@/lib/library/draft";
 import { maintenanceQueues } from "@/lib/library/review";
 import { processNext } from "@/lib/library/pipeline";
-import { listMySubmissions, submitLink } from "@/lib/library/submissions";
+import { listMySubmissions, submitFile, submitLink } from "@/lib/library/submissions";
 import { getStorage, type Storage } from "@/lib/storage";
 import { connectTestDatabase } from "../../../../../tests/integration/db";
 import { seedDirectory } from "../../../../../tests/integration/seed";
@@ -60,4 +60,23 @@ it("keeps a stored linked original and its metadata private when someone submits
   expect((await maintenanceQueues(db, viewerOf(people.amy))).onHold).toMatchObject([
     { id: duplicate.submissionId, url: null, fileName: null, hasOriginal: false },
   ]);
+});
+
+it("keeps a file original with its first uploader before a note exists", async () => {
+  const { people } = await seedDirectory(db);
+  const get = vi.fn(async () => new TextEncoder().encode("The shared fixture."));
+  const storage: Storage = { kind: "filesystem", get, exists: async () => false, put: vi.fn(), delete: vi.fn() };
+  const bytes = await get();
+  const input = { channel: "web" as const, reason: "For later", bytes };
+  const { sourceId } = await submitFile(db, storage, { ...input, fileName: "first.txt", submitterId: people.ada.id }, 1024);
+  await submitFile(db, storage, { ...input, fileName: "second.txt", submitterId: people.dan.id }, 1024);
+
+  vi.mocked(getDb).mockReturnValue(db);
+  vi.mocked(getStorage).mockReturnValue(storage);
+  const download = () => GET(new Request("https://library.example.org"), { params: Promise.resolve({ sourceId }) });
+
+  vi.mocked(getCurrentPerson).mockResolvedValue(people.dan);
+  expect((await download()).status).toBe(404);
+  vi.mocked(getCurrentPerson).mockResolvedValue(people.ada);
+  expect((await download()).status).toBe(200);
 });
