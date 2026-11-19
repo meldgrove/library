@@ -163,11 +163,11 @@ function requestOnce(
           chunks.push(chunk);
         });
         response.on("end", () => resolve({ status, contentType, bytes: new Uint8Array(Buffer.concat(chunks)) }));
-        response.on("error", (error) => reject(new LinkError(`The download failed: ${error.message}`)));
+        response.on("error", () => reject(new LinkError("The download failed.")));
       },
     );
     request.on("timeout", () => request.destroy(new LinkError("The site did not answer in time.")));
-    request.on("error", (error) => reject(error instanceof LinkError ? error : new LinkError(`The site could not be reached: ${error.message}`)));
+    request.on("error", (error) => reject(error instanceof LinkError ? error : new LinkError("The site could not be reached.")));
     request.end();
     // A site that sends a byte now and then would otherwise hold the worker forever.
     const deadline = setTimeout(() => {
@@ -182,7 +182,12 @@ function requestOnce(
 
 /** Downloads a link, following at most `maxRedirects` redirects. */
 export async function fetchLink(link: string, options: FetchLinkOptions): Promise<FetchedLink> {
-  let url = new URL(link);
+  let url: URL;
+  try {
+    url = new URL(link);
+  } catch {
+    throw new LinkError("The link could not be read.");
+  }
   const origin = url.origin;
   for (let redirects = 0; ; redirects += 1) {
     if (url.protocol !== "http:" && url.protocol !== "https:") throw new LinkError("Only web links (http and https) can be added.");
@@ -190,7 +195,11 @@ export async function fetchLink(link: string, options: FetchLinkOptions): Promis
     if (response.status >= 300 && response.status < 400) {
       if (!response.location) throw new LinkError(`The site answered HTTP ${response.status} without a target.`);
       if (redirects >= (options.maxRedirects ?? 5)) throw new LinkError("The link redirects too often.");
-      url = new URL(response.location, url);
+      try {
+        url = new URL(response.location, url);
+      } catch {
+        throw new LinkError("The site redirected to an invalid link.");
+      }
       continue;
     }
     if (response.status < 200 || response.status >= 300) throw new LinkError(`The site answered HTTP ${response.status}.`);

@@ -56,6 +56,11 @@ describe("fetchLink", () => {
         response.writeHead(200, { "content-type": "text/html" });
         const timer = setInterval(() => response.write("."), 50);
         response.on("close", () => clearInterval(timer));
+      } else if (request.url === "/interrupted") {
+        response.writeHead(200, { "content-type": "text/plain", "content-length": "8" }).write("short");
+        response.socket?.end();
+      } else if (request.url === "/invalid-redirect") {
+        response.writeHead(302, { location: "http://[" }).end();
       } else if (request.url === "/missing") {
         response.writeHead(404).end();
       } else {
@@ -109,6 +114,11 @@ describe("fetchLink", () => {
 
   it("gives up on a site that sends slowly, however long it keeps sending", async () => {
     await expect(fetchLink(`${base}/trickle`, { ...allow, maxBytes: 1_000_000, deadlineMs: 300 })).rejects.toThrow(/took too long/);
+  });
+
+  it("returns safe messages when a download is interrupted or redirects to an invalid link", async () => {
+    await expect(fetchLink(`${base}/interrupted`, allow)).rejects.toMatchObject({ message: "The download failed." });
+    await expect(fetchLink(`${base}/invalid-redirect`, allow)).rejects.toMatchObject({ message: "The site redirected to an invalid link." });
   });
 
   it("stops redirect loops, large files, errors, and other schemes", async () => {
