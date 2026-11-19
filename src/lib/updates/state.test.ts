@@ -50,7 +50,10 @@ describe("buttonState", () => {
     expect(state(status({ available: release("0.2.1"), attention: release("0.3.0") }))).toBe("available");
     expect(state(status({ installing: { version: "0.2.1", startedAt: "2026-11-19T10:00:00.000Z", manual: true, stage: "pulling" } }))).toBe("installing");
     expect(state(failedStatus)).toBe("failed");
-    expect(state(status({ mode: "off", automatic: false, available: release("0.2.1") }))).toBe("off");
+    expect(state(status({ mode: "off", automatic: false }))).toBe("off");
+    // Off installs nothing, but still offers new versions.
+    expect(state(status({ mode: "off", automatic: false, available: release("0.2.1") }))).toBe("available");
+    expect(state(status({ mode: "off", automatic: false, attention: release("0.3.0") }))).toBe("attention");
     expect(state(null)).toBe("unreachable");
   });
 

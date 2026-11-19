@@ -64,11 +64,17 @@ export function buttonState(input: {
   if (!response.reachable || !updater) return checking ? "checking" : "unreachable";
   if (updater.installing) return "installing";
   if (checking || updater.checking) return "checking";
-  if (updater.mode === "off") return "off";
   if (failure || reportedFailure(updater)) return "failed";
+  // Also with automatic updates off: the updater still offers new versions.
   if (updater.available) return "available";
   if (updater.attention) return "attention";
+  if (updater.mode === "off") return "off";
   return "up-to-date";
+}
+
+/** Whether the updater can install: with automatic updates off, it refuses. */
+export function canInstall(updater: Status | null | undefined): boolean {
+  return !!updater && updater.mode !== "off";
 }
 
 /** The version being installed. */

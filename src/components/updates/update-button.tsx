@@ -12,6 +12,7 @@ import { createDateFormatter } from "@/lib/format";
 import type { DisplayPreferences } from "@/lib/preferences";
 import {
   buttonState,
+  canInstall,
   installingVersion,
   installsLine,
   relativeTime,
@@ -174,10 +175,22 @@ export function UpdateButton({ preferences }: { preferences: DisplayPreferences 
         <PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)] p-0" data-testid="update-popover">
           <div className="flex flex-col gap-3 p-4 text-sm">
             {state === "available" && response?.updater?.available ? (
-              <AvailablePanel update={response.updater.available} now={now} formatDateTime={formatter.dateTime} onInstall={askToInstall} snapshot={snapshot} />
+              <AvailablePanel
+                update={response.updater.available}
+                installable={canInstall(response.updater)}
+                now={now}
+                formatDateTime={formatter.dateTime}
+                onInstall={askToInstall}
+                snapshot={snapshot}
+              />
             ) : null}
             {state === "attention" && response?.updater?.attention ? (
-              <AttentionPanel update={response.updater.attention} onInstall={askToInstall} snapshot={snapshot} />
+              <AttentionPanel
+                update={response.updater.attention}
+                installable={canInstall(response.updater)}
+                onInstall={askToInstall}
+                snapshot={snapshot}
+              />
             ) : null}
             {state === "failed" && failure ? (
               <FailedPanel failure={failure} response={response} onRetry={askToInstall} snapshot={snapshot} />
@@ -220,14 +233,24 @@ function ActionError({ snapshot }: { snapshot: UpdatesSnapshot }) {
   );
 }
 
+/** The updater refuses installations while automatic updates are off. */
+function OffNote() {
+  return (
+    <p className="text-muted-foreground">
+      Automatic updates are off on this server, so nothing can install. Set them up as the deployment guide describes.
+    </p>
+  );
+}
+
 function AvailablePanel(props: {
   update: Update;
+  installable: boolean;
   now: number;
   formatDateTime: (value: Date) => string;
   onInstall: (update: Update, attention: boolean) => void;
   snapshot: UpdatesSnapshot;
 }) {
-  const { update, now, formatDateTime, onInstall, snapshot } = props;
+  const { update, installable, now, formatDateTime, onInstall, snapshot } = props;
   const published = relativeTime(update.publishedAt, now);
   const { notes, more } = visibleNotes(update);
   const installs = installsLine(update, now, formatDateTime);
@@ -254,17 +277,26 @@ function AvailablePanel(props: {
       ) : null}
       {more > 0 ? <p className="text-muted-foreground">and {more === 1 ? "1 more change" : `${more} more changes`}</p> : null}
       <ReleaseNotesLink url={update.url} />
-      {installs ? <p className="text-muted-foreground">{installs}</p> : null}
+      {installable && installs ? <p className="text-muted-foreground">{installs}</p> : null}
       <ActionError snapshot={snapshot} />
-      <Button size="sm" className="w-fit" disabled={snapshot.requesting} onClick={() => onInstall(update, false)}>
-        Install now
-      </Button>
+      {installable ? (
+        <Button size="sm" className="w-fit" disabled={snapshot.requesting} onClick={() => onInstall(update, false)}>
+          Install now
+        </Button>
+      ) : (
+        <OffNote />
+      )}
     </>
   );
 }
 
-function AttentionPanel(props: { update: Update; onInstall: (update: Update, attention: boolean) => void; snapshot: UpdatesSnapshot }) {
-  const { update, onInstall, snapshot } = props;
+function AttentionPanel(props: {
+  update: Update;
+  installable: boolean;
+  onInstall: (update: Update, attention: boolean) => void;
+  snapshot: UpdatesSnapshot;
+}) {
+  const { update, installable, onInstall, snapshot } = props;
   return (
     <>
       <PopoverHeader>
@@ -273,9 +305,13 @@ function AttentionPanel(props: { update: Update; onInstall: (update: Update, att
       </PopoverHeader>
       <ReleaseNotesLink url={update.url} />
       <ActionError snapshot={snapshot} />
-      <Button size="sm" variant="outline" className="w-fit" disabled={snapshot.requesting} onClick={() => onInstall(update, true)}>
-        Install anyway…
-      </Button>
+      {installable ? (
+        <Button size="sm" variant="outline" className="w-fit" disabled={snapshot.requesting} onClick={() => onInstall(update, true)}>
+          Install anyway…
+        </Button>
+      ) : (
+        <OffNote />
+      )}
     </>
   );
 }
@@ -290,7 +326,8 @@ function FailedPanel(props: {
   const running = runningVersion(response);
   const updater = response?.updater;
   const attention = updater?.attention?.version === failure.version ? updater.attention : null;
-  const retry = updater?.available?.version === failure.version ? updater.available : attention;
+  const offered = updater?.available?.version === failure.version ? updater.available : attention;
+  const retry = canInstall(updater) ? offered : null;
   return (
     <>
       <PopoverHeader>
