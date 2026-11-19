@@ -349,6 +349,7 @@ export async function countMyDrafts(db: Database, personId: string): Promise<num
  * private drafts are their owners' alone: they are never escalated.
  */
 export async function maintenanceQueues(db: Database, viewer: Viewer, now: Date = new Date()) {
+  const showSource = or(isNull(note.id), visibleNotes(viewer));
   const [onHold, overdue, unchecked, [proposals]] = await Promise.all([
     db
       .select({
@@ -359,14 +360,15 @@ export async function maintenanceQueues(db: Database, viewer: Viewer, now: Date 
         createdAt: submission.createdAt,
         reason: submission.reason,
         submitterName: person.displayName,
-        fileName: source.fileName,
-        url: source.url,
+        fileName: sql<string | null>`case when ${showSource} then ${source.fileName} end`,
+        url: sql<string | null>`case when ${showSource} then ${source.url} end`,
         sourceId: source.id,
-        hasOriginal: sql<boolean>`${source.storageKey} is not null`,
+        hasOriginal: sql<boolean>`(${showSource} and ${source.storageKey} is not null)`,
       })
       .from(submission)
       .innerJoin(person, eq(person.id, submission.submitterId))
       .innerJoin(source, eq(source.id, submission.sourceId))
+      .leftJoin(note, eq(note.sourceId, source.id))
       .where(inArray(submission.status, ["quarantined", "parked"]))
       .orderBy(asc(submission.statusChangedAt)),
     db

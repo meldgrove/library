@@ -7,6 +7,7 @@ import { errorMessage, logger } from "@/lib/logger";
 import { consumeRateLimit, RateLimitError } from "@/lib/rate-limit";
 import { originalKey, type Storage } from "@/lib/storage";
 import { DUPLICATE_SUBMISSION_REASON, noteRef, notePath, type ScreenFinding, type SubmissionStatus } from "./constants";
+import { creatingSubmitterOfSource } from "./access";
 import { draftNote, DraftError, DraftProviderError, type DraftModel, type NoteDraft } from "./draft";
 import { ACCEPTED_TYPES, detectFileType, extractText, ExtractionError, fromHtml, tidyText, type Extracted, type OcrOptions } from "./extract";
 import { fetchLink, LinkError } from "./fetch-link";
@@ -114,8 +115,15 @@ async function textOfLink(deps: PipelineDeps, row: SourceRow, claimed: Claimed):
   const storage = deps.storage;
   const sourceId = !storage ? row.id : await deps.db.transaction(async (tx) => {
     await storeOriginal(tx, storage, key, fetched.bytes, ACCEPTED_TYPES[type].mimeType);
-    const [sameFile] = await tx.select().from(source).where(and(eq(source.sha256, sha256), ne(source.id, row.id)));
-    if (sameFile) {
+    const [match] = await tx.select({ row: source, creatorId: creatingSubmitterOfSource(deps.db) })
+      .from(source).where(and(eq(source.sha256, sha256), ne(source.id, row.id)));
+    if (match) {
+      const { row: sameFile, creatorId } = match;
+      if (sameFile.kind === "link" && creatorId !== claimed.submitterId) {
+        // Matching bytes do not grant access to another uploader's saved URL.
+        await checkDuplicate(tx, sameFile.id);
+        throw new Stop("duplicate", DUPLICATE_SUBMISSION_REASON);
+      }
       // Someone uploaded this file already: the upload belongs to that source.
       await tx.update(submission).set({ sourceId: sameFile.id }).where(eq(submission.id, claimed.id));
       // A source known without its original (e.g. imported) gets it now.
@@ -153,8 +161,16 @@ async function textOfLink(deps: PipelineDeps, row: SourceRow, claimed: Claimed):
 
 /** The source's text: stored from an earlier upload, or extracted now. */
 async function ensureText(deps: PipelineDeps, claimed: Claimed): Promise<{ text: string; sourceId: string }> {
-  const [row] = await deps.db.select().from(source).where(eq(source.id, claimed.sourceId));
-  if (!row) throw new Stop("parked", "The source no longer exists.");
+  const [result] = await deps.db
+    .select({ row: source, creatorId: creatingSubmitterOfSource(deps.db) })
+    .from(source).where(eq(source.id, claimed.sourceId));
+  if (!result) throw new Stop("parked", "The source no longer exists.");
+  const { row, creatorId } = result;
+  if (row.kind === "link" && creatorId !== claimed.submitterId) {
+    // A matching link is not proof the submitter can read the saved document.
+    await checkDuplicate(deps.db, row.id);
+    throw new Stop("duplicate", DUPLICATE_SUBMISSION_REASON);
+  }
   const [stored] = await deps.db.select({ text: sourceText.text }).from(sourceText).where(eq(sourceText.sourceId, row.id));
   if (stored) return { text: stored.text, sourceId: row.id };
 

@@ -1,6 +1,8 @@
 import { and, eq, isNull, or, sql, type SQL } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { canMaintain, type Role } from "@/lib/auth/roles";
-import { note, tagProposal } from "@/lib/db/schema";
+import type { Database } from "@/lib/db/client";
+import { note, source, submission, tagProposal } from "@/lib/db/schema";
 import type { NoteStatus, Visibility } from "./constants";
 
 /*
@@ -58,4 +60,17 @@ export function visibleTagProposals(viewer: Viewer): SQL {
 /** The viewer behind a request. */
 export function viewerOf(person: { id: string; teamId: string | null; role: Role }): Viewer {
   return { personId: person.id, teamId: person.teamId, role: person.role };
+}
+
+/**
+ * The source and its first submission are inserted in the same transaction.
+ * Both timestamps default to PostgreSQL's transaction time. A later upload
+ * must never inherit access if the original submission was deleted.
+ */
+export function creatingSubmitterOfSource(db: Database): SQL<string | null> {
+  const original = alias(submission, "creating_submission");
+  const uploader = db.select({ submitterId: original.submitterId }).from(original)
+    .where(and(eq(original.sourceId, source.id), eq(original.createdAt, source.createdAt)))
+    .orderBy(original.id).limit(1);
+  return sql<string | null>`(${uploader})`;
 }

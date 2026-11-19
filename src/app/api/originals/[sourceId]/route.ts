@@ -1,14 +1,14 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, exists, isNull, or } from "drizzle-orm";
 import { canMaintain } from "@/lib/auth/roles";
 import { getCurrentPerson } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { note, source, submission } from "@/lib/db/schema";
-import { canSeeNote, viewerOf } from "@/lib/library/access";
+import { creatingSubmitterOfSource, viewerOf, visibleNotes } from "@/lib/library/access";
 import { getStorage } from "@/lib/storage";
 
 /*
- * The original file of a source, for people who may see its note or who
- * uploaded it. PDFs open in the browser; every other file is downloaded. The
+ * The original file follows its note's visibility. Before a note exists,
+ * the file is available to its uploader and maintainers. PDFs open in the browser; every other file is downloaded. The
  * sandbox policy keeps a crafted file from running scripts on this origin.
  */
 
@@ -22,20 +22,21 @@ export async function GET(_request: Request, { params }: RouteContext<"/api/orig
   const { sourceId } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(sourceId)) return notFound();
   const db = getDb();
-  const [row] = await db.select().from(source).where(eq(source.id, sourceId));
+  const uploadedFile = db.select({ id: submission.id }).from(submission)
+    .where(and(eq(submission.sourceId, source.id), eq(submission.submitterId, person.id)));
+  const originalUploader = or(
+    and(eq(source.kind, "file"), exists(uploadedFile)),
+    eq(creatingSubmitterOfSource(db), person.id),
+  );
+  const [row] = await db
+    .select({ storageKey: source.storageKey, mimeType: source.mimeType, fileName: source.fileName })
+    .from(source)
+    .leftJoin(note, eq(note.sourceId, source.id))
+    .where(and(
+      eq(source.id, sourceId),
+      or(visibleNotes(viewerOf(person)), and(isNull(note.id), canMaintain(person.role) ? undefined : originalUploader)),
+    ));
   if (!row?.storageKey) return notFound();
-
-  const [ownNote] = await db
-    .select({ status: note.status, visibility: note.visibility, ownerId: note.ownerId, teamId: note.teamId })
-    .from(note)
-    .where(eq(note.sourceId, sourceId));
-  const uploaded = await db
-    .select({ id: submission.id })
-    .from(submission)
-    .where(and(eq(submission.sourceId, sourceId), eq(submission.submitterId, person.id)))
-    .limit(1);
-  const allowed = uploaded.length > 0 || (ownNote !== undefined && canSeeNote(viewerOf(person), ownNote)) || (canMaintain(person.role) && !ownNote);
-  if (!allowed) return notFound();
 
   const bytes = (await getStorage()?.get(row.storageKey)) ?? null;
   if (!bytes) return notFound();
