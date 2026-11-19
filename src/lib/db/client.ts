@@ -2,19 +2,24 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { getDatabaseConfig } from "@/lib/config";
 import { envValue } from "@/lib/env";
+import { errorMessage, logger } from "@/lib/logger";
 import * as schema from "./schema";
 
 export type Database = NodePgDatabase<typeof schema>;
 export type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 export function createPool(connectionString: string, applicationName: string): Pool {
-  return new Pool({
+  const pool = new Pool({
     connectionString,
     application_name: applicationName,
     max: 10,
     connectionTimeoutMillis: 5_000,
     idleTimeoutMillis: 30_000,
   });
+  // pg-pool removes broken idle clients before emitting this event. Listen so
+  // the process stays up and the next query can open a new connection.
+  pool.on("error", (error) => logger.warn({ error: errorMessage(error) }, "idle database connection lost"));
+  return pool;
 }
 
 export function createDb(pool: Pool): Database {
