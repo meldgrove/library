@@ -48,7 +48,7 @@ beforeAll(async () => {
   server = createServer((request, response) => {
     if (request.url === "/files/guideline") {
       response.writeHead(200, { "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }).end(Buffer.from(docx));
-    } else if (request.url === "/paper.pdf") {
+    } else if (request.url === "/paper.pdf" || request.url === "/paper-copy.pdf") {
       response.writeHead(200, { "content-type": "application/pdf" }).end(Buffer.from(pdf));
     } else {
       response
@@ -212,6 +212,31 @@ describe("pipeline", () => {
     expect(await listMySubmissions(db, viewerOf(seed.people.dan))).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: again.submissionId, noteNumber: published!.number, url: null }),
     ]));
+  });
+
+  it("keeps the visible note association when a linked PDF matched another uploader's link", async () => {
+    const input = { channel: "web" as const, reason: "Same paper" };
+    const original = await submitLink(db, { ...input, submitterId: seed.people.ada.id, url: `${base}/paper.pdf` });
+    expect(await processNext(deps())).toBe("drafted");
+    const { noteId } = await statusOf(original.submissionId);
+    const [published] = await db.update(note).set({ status: "published" }).where(eq(note.id, noteId!)).returning();
+
+    const url = `${base}/paper-copy.pdf`;
+    const matched = await submitLink(db, { ...input, submitterId: seed.people.dan.id, url });
+    expect(await processNext(deps())).toBe("duplicate");
+    expect((await statusOf(matched.submissionId)).sourceId).toBe(matched.sourceId);
+
+    const again = await submitLink(db, { ...input, submitterId: seed.people.amy.id, url });
+    const unableToFetch = deps({ storage: null, allowPrivateLinks: false });
+    expect(await processNext(unableToFetch)).toBe("duplicate");
+    expect(await listMySubmissions(db, viewerOf(seed.people.amy))).toMatchObject([
+      { id: again.submissionId, noteNumber: published!.number },
+    ]);
+
+    await db.update(note).set({ visibility: "private" }).where(eq(note.id, noteId!));
+    expect(await listMySubmissions(db, viewerOf(seed.people.amy))).toMatchObject([
+      { id: again.submissionId, noteNumber: null, url: null },
+    ]);
   });
 
   it("keeps the name and type of a Word file behind a link, so a retry can read it again", async () => {

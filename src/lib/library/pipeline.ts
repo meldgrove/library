@@ -1,5 +1,5 @@
 import path from "node:path";
-import { and, asc, eq, inArray, isNotNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, lte, ne, or, sql } from "drizzle-orm";
 import { recordAudit, type AuditAction } from "@/lib/audit";
 import type { Database, Transaction } from "@/lib/db/client";
 import { auditEvent, documentType, note, noteReason, noteTag, noteVersion, person, source, sourceText, submission, tag, tagProposal, topicArea } from "@/lib/db/schema";
@@ -178,6 +178,18 @@ async function mergedSourceOf(db: Database, row: SourceRow): Promise<string | un
   return moved?.sourceId;
 }
 
+/** The file match of a linked PDF can be recorded without moving its submission. */
+async function recordedDuplicateSourceOf(db: Database, sourceId: string): Promise<string | undefined> {
+  const [matched] = await db
+    .select({ sourceId: note.sourceId })
+    .from(submission)
+    .innerJoin(note, eq(note.id, submission.noteId))
+    .where(and(eq(submission.sourceId, sourceId), eq(submission.status, "duplicate")))
+    .orderBy(desc(submission.statusChangedAt), desc(submission.id))
+    .limit(1);
+  return matched?.sourceId;
+}
+
 /** The source's text: stored from an earlier upload, or extracted now. */
 async function ensureText(deps: PipelineDeps, claimed: Claimed): Promise<{ text: string; sourceId: string }> {
   const [result] = await deps.db
@@ -188,10 +200,9 @@ async function ensureText(deps: PipelineDeps, claimed: Claimed): Promise<{ text:
   if (row.kind === "link" && creatorId !== claimed.submitterId) {
     // A matching link is not proof the submitter can read the saved document.
     await checkDuplicate(deps.db, row.id);
-    if (creatorId === null) {
-      const mergedSourceId = await mergedSourceOf(deps.db, row);
-      if (mergedSourceId) await checkDuplicate(deps.db, mergedSourceId);
-    }
+    const matchedSourceId = await recordedDuplicateSourceOf(deps.db, row.id)
+      ?? (creatorId === null ? await mergedSourceOf(deps.db, row) : undefined);
+    if (matchedSourceId) await checkDuplicate(deps.db, matchedSourceId);
     throw new Stop("duplicate", DUPLICATE_SUBMISSION_REASON);
   }
   const [stored] = await deps.db.select({ text: sourceText.text }).from(sourceText).where(eq(sourceText.sourceId, row.id));
