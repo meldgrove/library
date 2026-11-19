@@ -39,7 +39,8 @@ filesystem or S3 (`@aws-sdk/client-s3`). AI model: Anthropic's Claude API
 - `src/lib/<module>/`: `auth`, `directory` (manual and Keycloak directory),
   `db`, `storage`, `audit`, `health`, `jobs` (queues and schedules),
   `security`, `notifications`, `slack` (signature check, the bot's Slack
-  client), `email` (IMAP).
+  client), `email` (IMAP), `updates` (the updater's API behind the admins'
+  update button, `src/app/api/admin/updates`).
 - `src/workers/`: the pg-boss worker. `src/scripts/`: migrate, directory
   sync, taxonomy import, replay. Both are bundled with esbuild into `dist/`
   (`scripts/build-scripts.mjs`).
@@ -47,7 +48,8 @@ filesystem or S3 (`@aws-sdk/client-s3`). AI model: Anthropic's Claude API
   `dev/`: the development Keycloak realm and `seed-demo.ts` (example notes).
   `e2e/`: Playwright. `tests/`: test helpers and fixtures
   (`tests/fixtures/files`: PDFs, a scan, a Word file; `tests/fixtures/email`:
-  `.eml` messages). Unit tests sit next to the code (`*.test.ts`),
+  `.eml` messages; `tests/fixtures/updater-0.2`: answers of the updater).
+  Unit tests sit next to the code (`*.test.ts`),
   integration tests too (`*.int.test.ts`).
 
 ## Rules

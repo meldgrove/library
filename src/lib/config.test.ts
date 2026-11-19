@@ -13,6 +13,7 @@ import {
   parseOcrConfig,
   parseStorageConfig,
   parseUploadConfig,
+  parseUpdaterConfig,
   parseWebhookConfig,
   validateWebConfig,
   validateWorkerConfig,
@@ -339,5 +340,22 @@ describe("parseEmailIntakeConfig", () => {
     expect(() => parseEmailIntakeConfig({ EMAIL_INTAKE_IMAP_URL: "imaps://imap.example.org", EMAIL_INTAKE_DOMAINS: "example.org" })).toThrow(/user and password/);
     expect(() => parseEmailIntakeConfig({ EMAIL_INTAKE_IMAP_URL: "https://imap.example.org", EMAIL_INTAKE_DOMAINS: "example.org" })).toThrow(/imaps/);
     expect(() => parseEmailIntakeConfig({ EMAIL_INTAKE_DOMAINS: "not a domain" })).toThrow(/EMAIL_INTAKE_DOMAINS/);
+  });
+});
+
+describe("parseUpdaterConfig", () => {
+  it("asks the updater service of compose.yaml unless UPDATER_URL says otherwise", () => {
+    expect(parseUpdaterConfig({}).UPDATER_URL).toBe("http://updater:8080");
+    expect(parseUpdaterConfig({ UPDATER_URL: "http://127.0.0.1:8080/" }).UPDATER_URL).toBe("http://127.0.0.1:8080");
+  });
+
+  it("switches the update button off when UPDATER_URL is empty", () => {
+    expect(parseUpdaterConfig({ UPDATER_URL: "" }).UPDATER_URL).toBeNull();
+    expect(parseUpdaterConfig({ UPDATER_URL: "  " }).UPDATER_URL).toBeNull();
+  });
+
+  it("refuses anything but a web address", () => {
+    expect(() => parseUpdaterConfig({ UPDATER_URL: "updater:8080" })).toThrow(/UPDATER_URL: must be a URL/);
+    expect(() => validateWebConfig({ UPDATER_URL: "ftp://updater" })).toThrow(/UPDATER_URL/);
   });
 });

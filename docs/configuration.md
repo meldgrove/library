@@ -238,6 +238,21 @@ your own, build the image with an auth token of your Sentry organization:
 | `SENTRY_ENVIRONMENT` | Sentry's default, `production` | Environment name shown in Sentry, e.g. `staging` |
 | `SENTRY_RELEASE` | `library@<APP_VERSION>` in release images, otherwise none | Release name, e.g. the deployed commit SHA |
 
+## Updates (web)
+
+The update button for admins asks the updater service
+([automatic updates](deployment.md#automatic-updates)).
+
+| Variable | Default | Value |
+|---|---|---|
+| `UPDATER_URL` | `http://updater:8080`, the `updater` service of `compose.yaml` | The updater's API. With `compose.yaml`, an empty value falls back to the default. Only where the library reads its environment directly (outside Docker Compose), empty switches the update button off; unlike other variables, empty is not unset there |
+
+With Docker Compose, the `updater` service reads `UPDATE_COOLDOWN` (default
+`3d`), `UPDATE_WINDOW`, and `TZ`; on Coolify `UPDATE_DEPLOY_HOOK_URL` and
+`UPDATE_DEPLOY_HOOK_TOKEN`; and for a private copy of the image
+`UPDATE_REGISTRY_USERNAME` and `UPDATE_REGISTRY_PASSWORD`
+([deployment](deployment.md#automatic-updates)).
+
 ## Time zone
 
 The library uses the server's time zone, set with the standard `TZ` variable

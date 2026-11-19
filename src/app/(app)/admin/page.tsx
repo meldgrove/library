@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { UpdateSettings } from "@/components/updates/update-settings";
 import { getFormatter, requireAdmin } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { getDirectory } from "@/lib/directory/directory";
@@ -45,7 +46,7 @@ export default async function AdminPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Admin"
-        description="The worker, people and teams, notifications, and the webhook."
+        description="The worker, people and teams, notifications, the webhook, and updates."
         actions={
           <div className="flex flex-wrap gap-2">
             <Button asChild variant="outline" size="sm">
@@ -330,6 +331,21 @@ export default async function AdminPage() {
               </Table>
             </section>
           ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <h2>Updates</h2>
+          </CardTitle>
+          <CardDescription>
+            The updater service on the server installs new versions of the library. The update button at the top shows
+            what is available.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <UpdateSettings />
         </CardContent>
       </Card>
 
