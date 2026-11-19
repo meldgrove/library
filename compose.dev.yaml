@@ -31,6 +31,8 @@ services:
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # The image sizes the heap from host RAM (up to 70 %); cap it for local use.
+      JAVA_OPTS_KC_HEAP: "-Xms64m -Xmx512m"
       KC_HEALTH_ENABLED: "true"
     ports:
       - "127.0.0.1:8094:8080"
