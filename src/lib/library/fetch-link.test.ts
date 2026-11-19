@@ -1,6 +1,6 @@
-import { createServer, type Server } from "node:http";
+import http, { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { fetchLink, isPrivateAddress, LinkError } from "./fetch-link";
 
 describe("isPrivateAddress", () => {
@@ -91,6 +91,20 @@ describe("fetchLink", () => {
     expect(await text(`${base}/echo`)).toBe("Bearer xoxb-test");
     expect(await text(`${base}/same`)).toBe("Bearer xoxb-test");
     expect(await text(`${base}/away`)).toBe("none");
+  });
+
+  it("reports a request setup failure without leaving a deadline scheduled", async () => {
+    vi.useFakeTimers();
+    const request = vi.spyOn(http, "request").mockImplementationOnce(() => {
+      throw new Error("transport setup detail");
+    });
+    try {
+      await expect(fetchLink(`${base}/page`, allow)).rejects.toThrow("The site could not be reached.");
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      request.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("gives up on a site that sends slowly, however long it keeps sending", async () => {

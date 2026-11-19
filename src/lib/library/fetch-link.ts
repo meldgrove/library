@@ -102,18 +102,23 @@ export interface FetchLinkOptions {
 
 const USER_AGENT = "Meldgrove-Library/1.0 (link fetcher)";
 
+interface LinkResponse {
+  status: number;
+  location?: string;
+  contentType: string;
+  bytes: Uint8Array;
+}
+
 function requestOnce(
   url: URL,
   options: FetchLinkOptions,
   extraHeaders: Record<string, string> = {},
-): Promise<{ status: number; location?: string; contentType: string; bytes: Uint8Array }> {
-  return new Promise((resolveRequest, rejectRequest) => {
-    // A site that sends a byte now and then would otherwise hold the worker forever.
-    const deadline = setTimeout(() => {
-      const error = new LinkError("The download took too long.");
-      rejectRequest(error);
-      request.destroy(error);
-    }, options.deadlineMs ?? 120_000);
+): Promise<LinkResponse> {
+  const hostname = url.hostname.replace(/^\[|\]$/g, "");
+  if (isIP(hostname) && !options.allowPrivateAddresses && isPrivateAddress(hostname)) {
+    return Promise.reject(new LinkError("The link points to an address that is not on the public internet."));
+  }
+  return new Promise<LinkResponse>((resolveRequest, rejectRequest) => {
     const resolve: typeof resolveRequest = (value) => {
       clearTimeout(deadline);
       resolveRequest(value);
@@ -123,11 +128,6 @@ function requestOnce(
       rejectRequest(error);
     };
     const client = url.protocol === "https:" ? https : http;
-    const literal = isIP(url.hostname.replace(/^\[|\]$/g, ""));
-    if (literal && !options.allowPrivateAddresses && isPrivateAddress(url.hostname.replace(/^\[|\]$/g, ""))) {
-      reject(new LinkError("The link points to an address that is not on the public internet."));
-      return;
-    }
     const request = client.request(
       url,
       {
@@ -169,6 +169,14 @@ function requestOnce(
     request.on("timeout", () => request.destroy(new LinkError("The site did not answer in time.")));
     request.on("error", (error) => reject(error instanceof LinkError ? error : new LinkError(`The site could not be reached: ${error.message}`)));
     request.end();
+    // A site that sends a byte now and then would otherwise hold the worker forever.
+    const deadline = setTimeout(() => {
+      const error = new LinkError("The download took too long.");
+      reject(error);
+      request.destroy(error);
+    }, options.deadlineMs ?? 120_000);
+  }).catch((error: unknown) => {
+    throw error instanceof LinkError ? error : new LinkError("The site could not be reached.");
   });
 }
 
