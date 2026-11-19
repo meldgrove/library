@@ -7,7 +7,7 @@ import { errorMessage, logger } from "@/lib/logger";
 import { consumeRateLimit, RateLimitError } from "@/lib/rate-limit";
 import { originalKey, type Storage } from "@/lib/storage";
 import { DUPLICATE_SUBMISSION_REASON, noteRef, notePath, type ScreenFinding, type SubmissionStatus } from "./constants";
-import { draftNote, DraftError, type DraftModel, type NoteDraft } from "./draft";
+import { draftNote, DraftError, DraftProviderError, type DraftModel, type NoteDraft } from "./draft";
 import { ACCEPTED_TYPES, detectFileType, extractText, ExtractionError, fromHtml, tidyText, type Extracted, type OcrOptions } from "./extract";
 import { fetchLink, LinkError } from "./fetch-link";
 import { findDoi, sha256Hex } from "./identify";
@@ -391,7 +391,7 @@ export async function processNext(deps: PipelineDeps, now: Date = new Date()): P
       });
     } catch (error) {
       if (error instanceof DraftError) throw new Stop("parked", `The AI draft failed: ${error.message}`);
-      throw new Retry(`The AI model could not be reached: ${errorMessage(error)}`);
+      throw new Retry(error instanceof DraftProviderError ? error.message : "The AI draft could not be completed.");
     }
     await createNote(deps, claimed, sourceId, draft, now);
     log.info("note drafted");

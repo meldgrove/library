@@ -165,10 +165,10 @@ describe("createOpenAiCompatibleModel", () => {
     expect(JSON.parse(String(init.body))).toMatchObject({ model: "model-1", response_format: { type: "json_object" } });
   });
 
-  it("reports HTTP errors", async () => {
+  it("reports only the HTTP status from provider errors", async () => {
     const fetchImpl = vi.fn(async () => new Response("quota", { status: 429 }));
     const model = createOpenAiCompatibleModel(config, fetchImpl as unknown as typeof fetch);
-    await expect(model.complete([])).rejects.toThrow("HTTP 429: quota");
+    await expect(model.complete([])).rejects.toHaveProperty("message", "The AI model answered HTTP 429.");
   });
 });
 
@@ -227,7 +227,7 @@ describe("createAnthropicModel", () => {
 
   it("parks a source the model declines, and a cut-off answer", async () => {
     const declined = fakeClient({ stop_reason: "refusal", stop_details: { type: "refusal", category: "cyber" } as Anthropic.Beta.BetaRefusalStopDetails });
-    await expect(createAnthropicModel(config, declined.client).complete(MESSAGES)).rejects.toThrow(new DraftError("The AI model declined to draft this source (cyber)."));
+    await expect(createAnthropicModel(config, declined.client).complete(MESSAGES)).rejects.toThrow(new DraftError("The AI model declined to draft this source."));
     const cut = fakeClient({ stop_reason: "max_tokens" });
     await expect(createAnthropicModel(config, cut.client).complete(MESSAGES)).rejects.toBeInstanceOf(DraftError);
     const empty = fakeClient({ content: [] });
@@ -238,9 +238,9 @@ describe("createAnthropicModel", () => {
     const limited = fakeClient(new Anthropic.RateLimitError(429, undefined, "quota", new Headers()));
     const error = await createAnthropicModel(config, limited.client).complete(MESSAGES).catch((caught: unknown) => caught);
     expect(error).not.toBeInstanceOf(DraftError);
-    expect((error as Error).message).toMatch(/^The AI model answered HTTP 429: .*quota/);
+    expect((error as Error).message).toBe("The AI model answered HTTP 429.");
     const down = fakeClient(new Anthropic.APIConnectionError({ message: "Connection error." }));
-    await expect(createAnthropicModel(config, down.client).complete(MESSAGES)).rejects.toThrow("The AI model could not be reached: Connection error.");
+    await expect(createAnthropicModel(config, down.client).complete(MESSAGES)).rejects.toHaveProperty("message", "The AI model could not be reached.");
   });
 
   it("asks for exactly the keys the answer schema checks", () => {

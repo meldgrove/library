@@ -229,14 +229,14 @@ describe("pipeline", () => {
     expect(await processNext(deps({ dailyDraftLimit: 1 }))).toBeNull();
   });
 
-  it("retries when the model cannot be reached, then parks", async () => {
+  it("retries unexpected model errors and parks without persisting provider details", async () => {
     const down: DraftModel = { name: "down", complete: async () => Promise.reject(new Error("ECONNREFUSED")) };
     const { submissionId } = await upload("a.txt", new TextEncoder().encode(studyText));
     for (let attempt = 1; attempt < MAX_ATTEMPTS; attempt += 1) {
       expect(await processNext(deps({ model: down }), new Date(Date.now() + attempt * 3_600_000))).toBe("retry");
     }
     expect(await processNext(deps({ model: down }), new Date(Date.now() + 10 * 3_600_000))).toBe("parked");
-    expect((await statusOf(submissionId)).statusReason).toMatch(/could not be reached: ECONNREFUSED/);
+    expect((await statusOf(submissionId)).statusReason).toBe("The AI draft could not be completed.");
   });
 
   it("parks when the model's answers do not fit the template", async () => {
