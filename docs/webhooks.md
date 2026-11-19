@@ -112,4 +112,5 @@ Any 2xx answer counts as delivered. Anything else, or no answer within 30
 seconds, is retried after 1, 5, 15, and 60 minutes, then every 6 hours.
 Redirects are not followed. Every change of a note starts its attempts anew.
 The admin page shows how many notes were delivered, which are waiting, and
-which keep failing, with the last error.
+which keep failing, with the last error. HTTP errors show the receiver's
+status code. The response body is discarded.
