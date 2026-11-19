@@ -261,6 +261,30 @@ describe("pipeline", () => {
     ]);
   });
 
+  it("keeps a duplicate's published note when the byte-matched source was deleted", async () => {
+    const input = { channel: "web" as const, reason: "Same paper" };
+    const original = await submitLink(db, { ...input, submitterId: seed.people.ada.id, url: `${base}/paper.pdf` });
+    const offline: DraftModel = { name: "offline", complete: async () => { throw new Error("Model unavailable"); } };
+    expect(await processNext(deps({ model: offline }))).toBe("retry");
+
+    const [byDoi] = await db.insert(source).values({ kind: "file", doi: "10.1234/climate.2025.001" }).returning();
+    const [published] = await db.insert(note).values({
+      sourceId: byDoi!.id, ownerId: seed.people.ada.id, status: "published", visibility: "all", title: "A study", core: "Core",
+    }).returning();
+    const url = `${base}/paper-copy.pdf`;
+    const firstMatch = await submitLink(db, { ...input, submitterId: seed.people.dan.id, url });
+    expect(await processNext(deps())).toBe("duplicate");
+    expect((await statusOf(firstMatch.submissionId)).noteId).toBe(published!.id);
+
+    await db.delete(source).where(eq(source.id, original.sourceId));
+
+    const repeat = await submitLink(db, { ...input, submitterId: seed.people.amy.id, url });
+    expect(await processNext(deps({ storage: null, allowPrivateLinks: false }))).toBe("duplicate");
+    expect(await listMySubmissions(db, viewerOf(seed.people.amy))).toMatchObject([
+      { id: repeat.submissionId, noteNumber: published!.number, url: null },
+    ]);
+  });
+
   it("keeps the name and type of a Word file behind a link, so a retry can read it again", async () => {
     const { submissionId, sourceId } = await submitLink(db, { submitterId: seed.people.ada.id, channel: "web", reason: "Guideline", url: `${base}/files/guideline` });
     const first = await processNext(deps());

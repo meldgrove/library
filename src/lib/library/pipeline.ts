@@ -191,7 +191,8 @@ async function recordedDuplicateSourceOf(db: Database, sourceId: string): Promis
       eq(auditEvent.subjectId, submission.id),
       eq(auditEvent.action, "submission.duplicate"),
     ))
-    .innerJoin(original, eq(original.id, sql`coalesce((${auditEvent.payload}->>'matchedSourceId')::uuid, ${note.sourceId})`))
+    // Preserve a recorded note even if the byte-matched source no longer exists.
+    .innerJoin(original, eq(original.id, sql`coalesce(${note.sourceId}, (${auditEvent.payload}->>'matchedSourceId')::uuid)`))
     .where(and(eq(submission.sourceId, sourceId), eq(submission.status, "duplicate")))
     .orderBy(desc(submission.statusChangedAt), desc(submission.id))
     .limit(1);
