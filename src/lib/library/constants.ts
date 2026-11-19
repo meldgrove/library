@@ -27,6 +27,8 @@ export type SubmissionStatus = (typeof SUBMISSION_STATUSES)[number];
 /** Submissions the worker still has to finish. */
 export const OPEN_SUBMISSION_STATUSES = ["received", "processing"] as const satisfies readonly SubmissionStatus[];
 
+export const DUPLICATE_SUBMISSION_REASON = "The library has this source already.";
+
 export const NOTE_STATUSES = ["draft", "published", "discarded"] as const;
 export type NoteStatus = (typeof NOTE_STATUSES)[number];
 

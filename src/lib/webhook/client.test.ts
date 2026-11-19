@@ -1,4 +1,6 @@
 import { createHmac } from "node:crypto";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { describe, expect, it, vi } from "vitest";
 import { createWebhookClient, signWebhook, WebhookError } from "./client";
 import { noteRemovedPayload } from "./payload";
@@ -20,7 +22,7 @@ describe("createWebhookClient", () => {
     await client.send(noteRemovedPayload("n1"));
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://hooks.example.org/library");
-    expect(init).toMatchObject({ method: "POST", redirect: "error" });
+    expect(init).toMatchObject({ method: "POST", redirect: "manual" });
     const headers = init.headers as Record<string, string>;
     expect(headers["library-timestamp"]).toBe("1700000000");
     const expected = `sha256=${createHmac("sha256", SECRET).update(`1700000000.${String(init.body)}`).digest("hex")}`;
@@ -34,9 +36,41 @@ describe("createWebhookClient", () => {
   });
 
   it("reports answers other than 2xx and failed requests", async () => {
-    await expect(setup(new Response("nope", { status: 500 })).client.send(noteRemovedPayload("n1"))).rejects.toThrow("The webhook answered HTTP 500 nope");
     const error = await setup(new TypeError("fetch failed")).client.send(noteRemovedPayload("n1")).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(WebhookError);
     expect((error as Error).message).toBe("Request to https://hooks.example.org failed: fetch failed");
+  });
+
+  it.each([200, 500])("cancels the response body for HTTP %i and uses the status alone", async (status) => {
+    const cancel = vi.fn();
+    const response = new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("receiver diagnostics"));
+        controller.close();
+      },
+      cancel,
+    }), { status });
+    const sent = setup(response).client.send(noteRemovedPayload("n1"));
+    if (status === 200) await expect(sent).resolves.toBeUndefined();
+    else await expect(sent).rejects.toThrow(/^The webhook answered HTTP 500$/);
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it("reports a redirect without sending the payload to its target", async () => {
+    const requests: (string | undefined)[] = [];
+    const server = createServer((request, response) => {
+      requests.push(request.url);
+      if (request.url === "/library") response.writeHead(307, { location: "/target" }).end();
+      else response.writeHead(204).end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const { port } = server.address() as AddressInfo;
+      const client = createWebhookClient({ url: `http://127.0.0.1:${port}/library`, secret: SECRET, timeoutMs: 1_000 });
+      await expect(client.send(noteRemovedPayload("n1"))).rejects.toThrow(/^The webhook answered HTTP 307$/);
+      expect(requests).toEqual(["/library"]);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });

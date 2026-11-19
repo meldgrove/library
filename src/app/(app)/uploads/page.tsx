@@ -10,6 +10,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/u
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getFormatter, requireUser } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
+import { viewerOf } from "@/lib/library/access";
 import { notePath, noteRef } from "@/lib/library/constants";
 import { listMySubmissions } from "@/lib/library/submissions";
 
@@ -17,7 +18,7 @@ export const metadata: Metadata = { title: "My uploads" };
 
 export default async function UploadsPage({ searchParams }: PageProps<"/uploads">) {
   const { person } = await requireUser();
-  const [fmt, rows, params] = await Promise.all([getFormatter(), listMySubmissions(getDb(), person.id), searchParams]);
+  const [fmt, rows, params] = await Promise.all([getFormatter(), listMySubmissions(getDb(), viewerOf(person)), searchParams]);
   const waiting = rows.some((row) => row.status === "received" || row.status === "processing");
   return (
     <div className="flex flex-col gap-6">

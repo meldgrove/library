@@ -80,4 +80,23 @@ describe("dispatch to an email address", () => {
     expect(sent[0]).toMatchObject({ to: "ada@example.org", toName: "Ada Author" });
     expect(sent[0]!.text.split("\n")[0]).toBe("Hello Ada Author,");
   });
+
+  it("sends a generic update for duplicate uploads queued by an older worker", async () => {
+    await db.update(person).set({ slackUserId: "U0ADA" }).where(eq(person.id, seed.people.ada.id));
+    await notifyPerson(db, {
+      event: "duplicate",
+      subjectKey: "upload",
+      recipientId: seed.people.ada.id,
+      channel: "slack",
+      message: {
+        subject: "The library has your upload already",
+        title: "The library has your upload already",
+        text: "The library has this source already: LIB-12. Your reason was added to the note.",
+        path: "/uploads",
+      },
+    });
+    expect(await dispatchDue(db, transports())).toMatchObject({ sent: 1 });
+    expect(slackPosts[0]?.text).toContain("The library has this source already.");
+    expect(slackPosts[0]?.text).not.toContain("LIB-12");
+  });
 });

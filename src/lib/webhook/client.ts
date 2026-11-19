@@ -55,16 +55,16 @@ export function createWebhookClient(options: {
             "library-delivery": randomUUID(),
           },
           body,
-          redirect: "error",
+          redirect: "manual",
           signal: AbortSignal.timeout(timeoutMs),
         });
       } catch (error) {
         throw new WebhookError(`Request to ${new URL(options.url).origin} failed: ${(error as Error).message}`, { cause: error });
       }
-      if (!response.ok) {
-        const text = (await response.text().catch(() => "")).slice(0, 300);
-        throw new WebhookError(`The webhook answered HTTP ${response.status} ${text}`.trim());
-      }
+      // The status determines delivery. Cancel the unused stream without
+      // waiting for the receiver or collecting its response in memory.
+      void response.body?.cancel().catch(() => {});
+      if (!response.ok) throw new WebhookError(`The webhook answered HTTP ${response.status}`);
     },
   };
 }
