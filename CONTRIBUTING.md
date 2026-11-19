@@ -125,8 +125,8 @@ come last (`.github/release.yml`).
 4. When the release needs admin action, edit its notes on GitHub and put the
    steps at the top.
 
-Servers that let the updater follow a series or `latest` install a release
-once its cooldown is over, three days unless the server sets another
+Servers on the Stable channel (on Coolify: a series or `latest`) install a
+release once its cooldown is over, three days unless the server sets another
 (`docs/deployment.md`, Automatic updates). Before releasing changes that
 need admin action, make sure their steps are ready for the notes.
 

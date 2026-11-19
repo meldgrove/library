@@ -7,9 +7,11 @@ every later release of the series; from 1.0.0 the series is the major
 version, `1`); `latest` is the newest release. A release that needs manual
 steps starts a new series, so the releases within a series install without
 anyone acting. Release candidates (`0.2.0-rc.1`) are for testing and get only
-their own tag. Run a fixed version and upgrade on purpose, or let the updater
-install new releases ([automatic updates](#automatic-updates)). The image's
-command selects the process:
+their own tag. Previews (`0.2.1-preview.3`, three changes after 0.2.0; `preview`
+is the newest) are built from every change on `main` once its checks passed.
+Run a fixed version and upgrade on purpose, or let the updater install new
+versions ([automatic updates](#automatic-updates)). The image's command
+selects the process:
 
 | Command | What it does |
 |---|---|
@@ -100,7 +102,7 @@ docker compose up -d
    ([identity and access](identity-and-access.md)).
 5. **Environment variables** of the resource
    ([configuration](configuration.md)): `LIBRARY_VERSION` (a series such as
-   `0.1`, see [automatic updates](#automatic-updates)), `LIBRARY_BASE_URL`
+   `0.2`, `latest`, or `preview`; see [on Coolify](#on-coolify)), `LIBRARY_BASE_URL`
    (the domain), `DATABASE_URL` (the database's internal URL), a new
    `BETTER_AUTH_SECRET` (`openssl rand -base64 32`), the `OIDC_*` variables,
    `DIRECTORY` with its settings, the `AI_*` variables, and for files the
@@ -130,8 +132,9 @@ run the commands as root (`sudo -i`).
    ([identity and access](identity-and-access.md)).
 4. **Create `.env`** from `.env.example` (`cp .env.example .env`,
    `chmod 600 .env`) and set the production values
-   ([configuration](configuration.md)): `LIBRARY_VERSION` (a series such as
-   `0.1`), `LIBRARY_BASE_URL`, `DATABASE_URL`, a new `BETTER_AUTH_SECRET`
+   ([configuration](configuration.md)): `LIBRARY_VERSION` (the newest
+   release, such as `0.2.0`; the updater keeps it current), `LIBRARY_BASE_URL`,
+   `DATABASE_URL`, a new `BETTER_AUTH_SECRET`
    (`openssl rand -base64 32`), the `OIDC_*` variables, `DIRECTORY` with its
    settings, the `AI_*` variables, and for files the `S3_*` variables.
    Remove `NOTIFICATION_TRANSPORT` (production sends for real),
@@ -197,47 +200,68 @@ admin page shows the worker's last heartbeat.
   audit log keeps only its number.
 - **Logs** are JSON lines on stdout. The `service` field names the process.
 - **Admin page** (`/admin`): worker heartbeat, uploads waiting and on hold,
-  directory sync status, notification channels and failures, and webhook
-  deliveries.
+  directory sync status, notification channels and failures, webhook
+  deliveries, and updates (installed version and channel).
 - **Upgrades**: read the release notes of every release since yours and
   take their steps. Back up the database first: migrations only move
   forward. `migrate` applies new migrations before `web` and `worker` start.
   - **Coolify:** set `LIBRARY_VERSION` to the new release in the resource's
     environment variables and redeploy. Coolify reads `compose.yaml` from
     `stable`, which is at the newest release.
-  - **Debian:** in `/srv/library`, run `git pull` (the newest release's
-    `compose.yaml`), set `LIBRARY_VERSION` in `.env`, and run
-    `docker compose up -d --pull always`.
+  - **Debian:** take the steps, then install the release with the update
+    button (**Install anyway…**). By hand: in `/srv/library`, run `git pull`
+    (the newest release's `compose.yaml`), set `LIBRARY_VERSION` in `.env`,
+    and run `docker compose up -d --pull always`.
 
 ## Automatic updates
 
 `compose.yaml` includes the `updater` service of
 [Meldgrove Updater](https://github.com/meldgrove/updater) (image
-`ghcr.io/meldgrove/updater:0.1`). Once an hour it checks whether the tag in
-`LIBRARY_VERSION` points to a new image. If so, it calls Coolify's deploy
-link or asks the server, which pulls the image and restarts the library,
-`migrate` first. Until it is set up [on Coolify](#on-coolify) or
-[on Debian](#on-debian), it does nothing.
+`ghcr.io/meldgrove/updater:0.2`). Once an hour it checks for new versions of
+the library. Set up [on Coolify](#on-coolify) or [on Debian](#on-debian), it
+installs them: `migrate` runs first, then `web` and `worker` restart.
+Without that setup it installs nothing, and the update button still shows
+what is available.
 
-The tag in `LIBRARY_VERSION` decides what installs:
+Admins choose the channel under **Admin → Updates**:
 
-- a series such as `0.2` (from 1.0.0 the major version, such as `1`): every
-  release of that series, with its features and fixes. None of them needs
-  manual steps. A release that does starts the next series: the `updater`
-  log then names it, and moving to it is an [upgrade](#operations) by hand;
-- `latest`: every release. A release with upgrade steps then installs before
-  anyone has taken them; watch the releases on GitHub (Watch → Custom →
-  Releases) and take the steps right away.
+- **Stable** (default, recommended): releases. A release that needs no
+  manual steps (same series, such as 0.2.x) installs three days after it
+  came out, so that a faulty one can be replaced before it reaches the
+  server. A release that starts a new series needs
+  [upgrade steps](#operations): the update button shows it, but it never
+  installs by itself.
+- **Preview**: every change on `main` as soon as its checks passed, days or
+  weeks before a release, and every release. Previews install within the
+  hour. New features first, and now and then a new bug. Previews have no
+  release notes.
 
-Schedule database backups first: migrations run without anyone watching.
+Switching back to Stable installs nothing and never goes back to an older
+version: the library keeps the preview until a release is newer, because a
+database migrated by a newer version may not work with an older one.
 
-A release installs three days after it came out, so that a faulty one can be
-replaced before it reaches the server. `UPDATE_COOLDOWN` changes the time:
-`0` installs within the hour, `7d` waits a week. Security fixes wait as well;
-deploy by hand to install a release at once. A deployment stops the library
-for a moment: `UPDATE_WINDOW`, such as `02:00-05:00` in the time zone `TZ`,
-keeps that out of working hours. After the first automatic update, check
-that it arrived: `/-/healthz` reports the version.
+`UPDATE_COOLDOWN` changes the three days: `0` installs within the hour, `7d`
+waits a week. Security fixes wait as well; install them with the update
+button. A deployment stops the library for a moment: `UPDATE_WINDOW`, such as
+`02:00-05:00` in the time zone `TZ`, keeps automatic installs out of working
+hours. Schedule database backups first: migrations run without anyone
+watching.
+
+### The update button
+
+Admins (and only they) see an update button at the top right of every page.
+It shows whether an update is available, its changes and release notes, and
+when it installs by itself, and checks again on request. **Install now**
+installs the update at once, regardless of the cooldown and the window: the
+library restarts, and the page reloads when it is back. When an installation
+fails, the button says why and which version still runs. The admin page
+shows the installed version, the channel, and when updates install.
+
+The library reaches the updater at `UPDATER_URL`
+([configuration](configuration.md#updates-web)). The updater's API has no
+authentication: never publish its port. Without an updater that answers,
+such as updater 0.1, which has no API, the button says "No update service";
+updater 0.1 keeps installing as before.
 
 ### On Coolify
 
@@ -248,7 +272,12 @@ that it arrived: `/-/healthz` reports the version.
 4. In the resource's environment variables, set `UPDATE_DEPLOY_HOOK_URL` to
    the webhook and `UPDATE_DEPLOY_HOOK_TOKEN` to the token, then redeploy.
 
-The `updater` log then names the tag it watches.
+On Coolify, the image tag in `LIBRARY_VERSION` decides what installs, not the
+channel in the library: a series such as `0.2` (Stable), `latest` (every
+release, including those with upgrade steps; watch the releases on GitHub
+and take their steps right away), or `preview` (Preview). The admin page
+says so instead of offering the channel. When the tag points to a new image,
+the updater calls the deploy link; **Install now** calls it at once.
 
 ### On Debian
 
@@ -260,10 +289,36 @@ docker compose run --rm -T --pull always updater host-setup > updater-setup.sh
 sh updater-setup.sh
 ```
 
-The first command starts the image the tag points to now, which the updater
-takes as installed. The second writes the setup script from the updater's
-image; read it before you run it. The script installs a systemd unit that
-waits for the updater's request, then pulls the new image and runs
-`docker compose up -d`, `migrate` first. `docker compose logs updater` names
-the tag it watches, and `journalctl -u meldgrove-updater-library.service`
-shows each installation. `sh updater-setup.sh remove` switches it off.
+The first command starts the version in `LIBRARY_VERSION`. The second writes
+the setup script from the updater's image; read it before you run it. The
+script installs a systemd unit that waits for the updater's requests. For
+each installation, the server writes the exact version into
+`LIBRARY_VERSION` in `.env`, pulls the image, runs `docker compose up
+--detach --wait`, and waits until the library is healthy. When it does not
+become healthy, the server restores `.env` and starts the version before
+again; the update button shows why. So `LIBRARY_VERSION` always names the
+version that runs. The server installs images, not files: a release that
+changes `compose.yaml` says so in its upgrade steps (`git pull`).
+
+`journalctl -u meldgrove-updater-library.service` shows each installation,
+and `sh updater-setup.sh remove` switches it off.
+
+#### Servers set up with updater 0.1
+
+A server set up before the update button follows the tag in
+`LIBRARY_VERSION` (such as `latest`) and keeps installing releases. Its
+update button says "No update service", and admins cannot choose a channel.
+To move it to the setup above, as root in `/srv/library`:
+
+```sh
+git pull
+docker compose up -d
+docker compose run --rm -T --pull always updater host-setup > updater-setup.sh
+sh updater-setup.sh
+```
+
+`git pull` gets the newest release's `compose.yaml` (branch `stable`), with
+updater 0.2; `docker compose up -d` starts it. Until the host setup runs
+again, the updater follows the tag as before, and the admin page explains
+that the channel needs the host setup again. From the next installation on,
+`LIBRARY_VERSION` holds the exact version instead of the tag.
