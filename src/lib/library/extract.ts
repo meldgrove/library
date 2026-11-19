@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import mammoth from "mammoth";
-import { extractText as extractPdfText, getDocumentProxy, getMeta } from "unpdf";
+import { extractText as extractPdfText, getMeta, getResolvedPDFJS } from "unpdf";
 import type { ExtractionMethod } from "./constants";
 import type { FileType } from "./file-types";
 
@@ -100,18 +100,25 @@ export function mergeOcrPages(digital: string[], scanned: boolean[], sidecar: st
   return digital.map((page, index) => (scanned[index] && recognised[index]?.trim() ? recognised[index]! : page));
 }
 
-async function fromPdf(bytes: Uint8Array, ocr: OcrOptions): Promise<Extracted> {
-  let pdf;
+async function readPdf(bytes: Uint8Array) {
+  const { getDocument } = await getResolvedPDFJS();
+  // Keep the task even when a malformed or password-protected PDF never resolves to a proxy.
+  const task = getDocument({ data: new Uint8Array(bytes), useSystemFonts: true });
   try {
-    pdf = await getDocumentProxy(new Uint8Array(bytes));
-  } catch (error) {
-    throw new ExtractionError(`The PDF could not be read: ${(error as Error).message}`);
+    const pdf = await task.promise.catch(() => {
+      throw new ExtractionError("The PDF could not be read.");
+    });
+    const { totalPages, text } = await extractPdfText(pdf, { mergePages: false });
+    const meta = await getMeta(pdf).catch(() => null);
+    const title = typeof meta?.info?.Title === "string" ? meta.info.Title.trim() || undefined : undefined;
+    return { totalPages, text, title };
+  } finally {
+    await task.destroy();
   }
-  const [{ totalPages, text }, meta] = await Promise.all([
-    extractPdfText(pdf, { mergePages: false }),
-    getMeta(pdf).catch(() => null),
-  ]);
-  const title = typeof meta?.info?.Title === "string" && meta.info.Title.trim() ? meta.info.Title.trim() : undefined;
+}
+
+async function fromPdf(bytes: Uint8Array, ocr: OcrOptions): Promise<Extracted> {
+  const { totalPages, text, title } = await readPdf(bytes);
   const join = (pages: string[]) => tidyText(pages.map((page, index) => `[Page ${index + 1}]\n${page}`).join("\n\n"));
   // Pages without a text layer are scans: a whole scanned PDF, or scanned pages in a digital one.
   const scanned = text.map((page) => page.replace(/\s+/g, "").length < SCAN_CHARS_PER_PAGE);
