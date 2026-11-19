@@ -29,6 +29,7 @@ for (const [network, prefix] of [
   ["172.16.0.0", 12],
   ["192.0.0.0", 24],
   ["192.0.2.0", 24],
+  ["192.88.99.0", 24],
   ["192.168.0.0", 16],
   ["198.18.0.0", 15],
   ["198.51.100.0", 24],
@@ -38,14 +39,15 @@ for (const [network, prefix] of [
 ] as const) {
   blocked.addSubnet(network, prefix, "ipv4");
 }
+const globalUnicast = new BlockList();
+globalUnicast.addSubnet("2000::", 3, "ipv6");
+const mappedIpv4 = new BlockList();
+mappedIpv4.addSubnet("::ffff:0:0", 96, "ipv6");
 for (const [network, prefix] of [
-  ["::", 128],
-  ["::1", 128],
-  ["fc00::", 7],
-  ["fe80::", 10],
-  ["ff00::", 8],
+  ["2001::", 23],
   ["2001:db8::", 32],
-  ["64:ff9b::", 96],
+  ["2002::", 16],
+  ["3fff::", 20],
 ] as const) {
   blocked.addSubnet(network, prefix, "ipv6");
 }
@@ -53,14 +55,12 @@ for (const [network, prefix] of [
 /** Loopback, private, link-local, and other addresses that are not on the public internet. */
 export function isPrivateAddress(address: string): boolean {
   const family = isIP(address);
-  if (family === 0) return true;
-  if (family === 6) {
-    // IPv4-mapped IPv6 (::ffff:10.0.0.1) is checked as IPv4.
-    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address);
-    if (mapped) return blocked.check(mapped[1]!, "ipv4");
-    return blocked.check(address, "ipv6");
-  }
-  return blocked.check(address, "ipv4");
+  if (family === 4) return blocked.check(address, "ipv4");
+  if (family !== 6 || address.includes("%")) return true;
+  // BlockList matches IPv4 subnets against mapped IPv6 in either notation.
+  if (mappedIpv4.check(address, "ipv6")) return blocked.check(address, "ipv6");
+  // Restrict native IPv6 to public unicast, excluding special-use ranges.
+  return !globalUnicast.check(address, "ipv6") || blocked.check(address, "ipv6");
 }
 
 /** A DNS lookup that refuses names resolving to non-public addresses. */
@@ -102,18 +102,23 @@ export interface FetchLinkOptions {
 
 const USER_AGENT = "Meldgrove-Library/1.0 (link fetcher)";
 
+interface LinkResponse {
+  status: number;
+  location?: string;
+  contentType: string;
+  bytes: Uint8Array;
+}
+
 function requestOnce(
   url: URL,
   options: FetchLinkOptions,
   extraHeaders: Record<string, string> = {},
-): Promise<{ status: number; location?: string; contentType: string; bytes: Uint8Array }> {
-  return new Promise((resolveRequest, rejectRequest) => {
-    // A site that sends a byte now and then would otherwise hold the worker forever.
-    const deadline = setTimeout(() => {
-      const error = new LinkError("The download took too long.");
-      rejectRequest(error);
-      request.destroy(error);
-    }, options.deadlineMs ?? 120_000);
+): Promise<LinkResponse> {
+  const hostname = url.hostname.replace(/^\[|\]$/g, "");
+  if (isIP(hostname) && !options.allowPrivateAddresses && isPrivateAddress(hostname)) {
+    return Promise.reject(new LinkError("The link points to an address that is not on the public internet."));
+  }
+  return new Promise<LinkResponse>((resolveRequest, rejectRequest) => {
     const resolve: typeof resolveRequest = (value) => {
       clearTimeout(deadline);
       resolveRequest(value);
@@ -123,11 +128,6 @@ function requestOnce(
       rejectRequest(error);
     };
     const client = url.protocol === "https:" ? https : http;
-    const literal = isIP(url.hostname.replace(/^\[|\]$/g, ""));
-    if (literal && !options.allowPrivateAddresses && isPrivateAddress(url.hostname.replace(/^\[|\]$/g, ""))) {
-      reject(new LinkError("The link points to an address that is not on the public internet."));
-      return;
-    }
     const request = client.request(
       url,
       {
@@ -139,8 +139,9 @@ function requestOnce(
       (response) => {
         const status = response.statusCode ?? 0;
         const contentType = String(response.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
-        if (status >= 300 && status < 400) {
-          response.resume();
+        if (status < 200 || status >= 300) {
+          // Only the headers matter here. A redirect or error body can stream indefinitely.
+          response.destroy();
           resolve({ status, location: response.headers.location, contentType, bytes: new Uint8Array() });
           return;
         }
@@ -162,18 +163,31 @@ function requestOnce(
           chunks.push(chunk);
         });
         response.on("end", () => resolve({ status, contentType, bytes: new Uint8Array(Buffer.concat(chunks)) }));
-        response.on("error", (error) => reject(new LinkError(`The download failed: ${error.message}`)));
+        response.on("error", () => reject(new LinkError("The download failed.")));
       },
     );
     request.on("timeout", () => request.destroy(new LinkError("The site did not answer in time.")));
-    request.on("error", (error) => reject(error instanceof LinkError ? error : new LinkError(`The site could not be reached: ${error.message}`)));
+    request.on("error", (error) => reject(error instanceof LinkError ? error : new LinkError("The site could not be reached.")));
     request.end();
+    // A site that sends a byte now and then would otherwise hold the worker forever.
+    const deadline = setTimeout(() => {
+      const error = new LinkError("The download took too long.");
+      reject(error);
+      request.destroy(error);
+    }, options.deadlineMs ?? 120_000);
+  }).catch((error: unknown) => {
+    throw error instanceof LinkError ? error : new LinkError("The site could not be reached.");
   });
 }
 
 /** Downloads a link, following at most `maxRedirects` redirects. */
 export async function fetchLink(link: string, options: FetchLinkOptions): Promise<FetchedLink> {
-  let url = new URL(link);
+  let url: URL;
+  try {
+    url = new URL(link);
+  } catch {
+    throw new LinkError("The link could not be read.");
+  }
   const origin = url.origin;
   for (let redirects = 0; ; redirects += 1) {
     if (url.protocol !== "http:" && url.protocol !== "https:") throw new LinkError("Only web links (http and https) can be added.");
@@ -181,7 +195,11 @@ export async function fetchLink(link: string, options: FetchLinkOptions): Promis
     if (response.status >= 300 && response.status < 400) {
       if (!response.location) throw new LinkError(`The site answered HTTP ${response.status} without a target.`);
       if (redirects >= (options.maxRedirects ?? 5)) throw new LinkError("The link redirects too often.");
-      url = new URL(response.location, url);
+      try {
+        url = new URL(response.location, url);
+      } catch {
+        throw new LinkError("The site redirected to an invalid link.");
+      }
       continue;
     }
     if (response.status < 200 || response.status >= 300) throw new LinkError(`The site answered HTTP ${response.status}.`);

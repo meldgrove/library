@@ -40,26 +40,27 @@ export async function POST(request: Request) {
     return errorResponse(413, { fieldErrors: { file: `The file is larger than ${getUploadConfig().UPLOAD_MAX_MB} MB.` } });
   }
 
-  let form: FormData;
   try {
-    form = await request.formData();
-  } catch {
-    return errorResponse(400, { formError: "The upload could not be read. Try again." });
-  }
-  const parsed = fieldsSchema.safeParse({
-    kind: form.get("kind"),
-    reason: form.get("reason") ?? "",
-    confirmed: form.get("confirmed") ?? "",
-    url: typeof form.get("url") === "string" ? form.get("url") : undefined,
-  });
-  if (!parsed.success) {
-    const fieldErrors: Record<string, string> = {};
-    for (const issue of parsed.error.issues) fieldErrors[String(issue.path[0])] ??= issue.message;
-    return errorResponse(400, { fieldErrors });
-  }
-
-  try {
+    // Check the request budget before allocating and parsing a multipart body.
     await consumeRateLimit(getDb(), `write:${person.id}`, WRITE_LIMIT);
+    let form: FormData;
+    try {
+      form = await request.formData();
+    } catch {
+      return errorResponse(400, { formError: "The upload could not be read. Try again." });
+    }
+    const parsed = fieldsSchema.safeParse({
+      kind: form.get("kind"),
+      reason: form.get("reason") ?? "",
+      confirmed: form.get("confirmed") ?? "",
+      url: typeof form.get("url") === "string" ? form.get("url") : undefined,
+    });
+    if (!parsed.success) {
+      const fieldErrors: Record<string, string> = {};
+      for (const issue of parsed.error.issues) fieldErrors[String(issue.path[0])] ??= issue.message;
+      return errorResponse(400, { fieldErrors });
+    }
+
     const base = { submitterId: person.id, channel: "web" as const, reason: parsed.data.reason };
     let result: { submissionId: string };
     if (parsed.data.kind === "file") {

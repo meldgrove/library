@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { consumeRateLimit, RateLimitError } from "@/lib/rate-limit";
 
 const mocks = vi.hoisted(() => ({ getCurrentPerson: vi.fn(), submitFile: vi.fn() }));
 
@@ -26,6 +27,7 @@ const upload = (init: { headers?: Record<string, string>; body?: BodyInit }) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(consumeRateLimit).mockResolvedValue(undefined);
   mocks.getCurrentPerson.mockResolvedValue({ id: "00000000-0000-4000-8000-000000000001" });
 });
 
@@ -49,6 +51,19 @@ describe("POST /api/uploads", () => {
   it("refuses a declared length over the limit", async () => {
     const response = await upload({ headers: { "content-length": String(2 * 1_048_576) }, body: "x" });
     expect(response.status).toBe(413);
+  });
+
+  it("does not parse a request once the user's write limit is exhausted", async () => {
+    vi.mocked(consumeRateLimit).mockRejectedValueOnce(new RateLimitError());
+    const request = new Request("https://library.example/api/uploads", {
+      method: "POST",
+      headers: { origin: "https://library.example", "content-length": "1" },
+      body: "x",
+    });
+
+    expect((await POST(request)).status).toBe(429);
+    expect(request.bodyUsed).toBe(false);
+    expect(mocks.submitFile).not.toHaveBeenCalled();
   });
 
   it("passes a file to the submissions module", async () => {

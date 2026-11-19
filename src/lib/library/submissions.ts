@@ -1,10 +1,10 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { recordAudit } from "@/lib/audit";
 import { CommandError } from "@/lib/commands";
 import type { Database, Transaction } from "@/lib/db/client";
 import { note, person, source, submission } from "@/lib/db/schema";
 import { originalKey, type Storage } from "@/lib/storage";
-import { visibleNotes, type Viewer } from "./access";
+import { creatingSubmitterOfSource, noteSourceFileName, visibleNotes, type Viewer } from "./access";
 import { DUPLICATE_SUBMISSION_REASON, NOTE_LIMITS, OPEN_SUBMISSION_STATUSES, type SubmissionChannel } from "./constants";
 import { ACCEPTED_LABELS, ACCEPTED_TYPES, detectFileType } from "./file-types";
 import { normalizeUrl, sha256Hex } from "./identify";
@@ -130,21 +130,45 @@ export async function submitLink(db: Database | Transaction, input: SubmitLinkIn
   });
 }
 
+export const UPLOAD_PROCESSING_ERROR = "The upload could not be processed.";
+
+/** Older workers appended raw errors to these user-facing prefixes. */
+const legacyErrorCopy = [
+  ["The AI model could not be reached: ", "The AI draft could not be completed."],
+  ["The AI draft failed: The AI model declined to draft this source (", "The AI draft failed: The AI model declined to draft this source."],
+  ["Unexpected error: ", UPLOAD_PROCESSING_ERROR],
+  ["Text recognition (OCR) failed: ", "Text recognition (OCR) failed."],
+  ["The Word file could not be read: ", "The Word file could not be read."],
+  ["The PDF could not be read: ", "The PDF could not be read."],
+  ["The download failed: ", "The download failed."],
+  ["The site could not be reached: ", "The site could not be reached."],
+] as const;
+
+export function safeSubmissionMessage(text: string): string {
+  return legacyErrorCopy.find(([prefix]) => text.startsWith(prefix))?.[1] ?? text;
+}
+
+export const safeSubmissionReason = sql<string | null>`case
+  when ${submission.status} = 'duplicate' then ${DUPLICATE_SUBMISSION_REASON}
+  ${sql.join(legacyErrorCopy.map(([prefix, message]) => sql`when ${submission.statusReason} like ${prefix + "%"} then ${message}`), sql` `)}
+  else ${submission.statusReason} end`;
+
 /** A person's uploads, newest first, with their notes when the person can see them. */
 export async function listMySubmissions(db: Database, viewer: Viewer, limit = 100) {
+  // Deduplication can associate this upload with someone else's source.
+  const showSource = or(eq(creatingSubmitterOfSource(db), viewer.personId), eq(note.sourceId, source.id));
   return db
     .select({
       id: submission.id,
       channel: submission.channel,
       reason: submission.reason,
       status: submission.status,
-      // Older duplicate reasons contain a note reference.
-      statusReason: sql<string | null>`case when ${submission.status} = 'duplicate' then ${DUPLICATE_SUBMISSION_REASON} else ${submission.statusReason} end`,
+      statusReason: safeSubmissionReason,
       createdAt: submission.createdAt,
       statusChangedAt: submission.statusChangedAt,
-      fileName: source.fileName,
-      url: source.url,
-      detectedTitle: source.detectedTitle,
+      fileName: sql<string | null>`case when ${showSource} then ${noteSourceFileName(db)} end`,
+      url: sql<string | null>`case when ${showSource} then ${source.url} end`,
+      detectedTitle: sql<string | null>`case when ${showSource} then ${source.detectedTitle} end`,
       noteNumber: note.number,
       noteStatus: note.status,
     })

@@ -12,6 +12,7 @@ import { seedDirectory } from "../../../tests/integration/seed";
 import { viewerOf } from "./access";
 import { createFakeModel, type DraftModel } from "./draft";
 import { MAX_ATTEMPTS, processNext, type PipelineDeps } from "./pipeline";
+import { maintenanceQueues } from "./review";
 import { listMySubmissions, submitFile, submitLink } from "./submissions";
 import { ensureDefaultDocumentTypes, importTaxonomy } from "./taxonomy";
 
@@ -47,7 +48,7 @@ beforeAll(async () => {
   server = createServer((request, response) => {
     if (request.url === "/files/guideline") {
       response.writeHead(200, { "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }).end(Buffer.from(docx));
-    } else if (request.url === "/paper.pdf") {
+    } else if (request.url === "/paper.pdf" || request.url === "/paper-copy.pdf") {
       response.writeHead(200, { "content-type": "application/pdf" }).end(Buffer.from(pdf));
     } else {
       response
@@ -195,6 +196,95 @@ describe("pipeline", () => {
     expect((await statusOf(submissionId)).noteId).not.toBeNull();
   });
 
+  it("finds the visible note for a repeat link whose first upload moved to an existing file", async () => {
+    const file = await upload("study.pdf", await fixture("study.pdf"));
+    expect(await processNext(deps())).toBe("drafted");
+    const { noteId } = await statusOf(file.submissionId);
+    const [published] = await db.update(note).set({ status: "published" }).where(eq(note.id, noteId!)).returning();
+    const input = { submitterId: seed.people.dan.id, channel: "web" as const, reason: "Same paper", url: `${base}/paper.pdf` };
+
+    const first = await submitLink(db, input);
+    expect(await processNext(deps())).toBe("duplicate");
+    expect((await statusOf(first.submissionId)).sourceId).toBe(file.sourceId);
+
+    const again = await submitLink(db, input);
+    expect(await processNext(deps())).toBe("duplicate");
+    expect(await listMySubmissions(db, viewerOf(seed.people.dan))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: again.submissionId, noteNumber: published!.number, url: null }),
+    ]));
+  });
+
+  it("keeps the visible note association when a linked PDF matched another uploader's link", async () => {
+    const input = { channel: "web" as const, reason: "Same paper" };
+    const original = await submitLink(db, { ...input, submitterId: seed.people.ada.id, url: `${base}/paper.pdf` });
+    expect(await processNext(deps())).toBe("drafted");
+    const { noteId } = await statusOf(original.submissionId);
+    const [published] = await db.update(note).set({ status: "published" }).where(eq(note.id, noteId!)).returning();
+
+    const url = `${base}/paper-copy.pdf`;
+    const matched = await submitLink(db, { ...input, submitterId: seed.people.dan.id, url });
+    expect(await processNext(deps())).toBe("duplicate");
+    expect((await statusOf(matched.submissionId)).sourceId).toBe(matched.sourceId);
+
+    const again = await submitLink(db, { ...input, submitterId: seed.people.amy.id, url });
+    const unableToFetch = deps({ storage: null, allowPrivateLinks: false });
+    expect(await processNext(unableToFetch)).toBe("duplicate");
+    expect(await listMySubmissions(db, viewerOf(seed.people.amy))).toMatchObject([
+      { id: again.submissionId, noteNumber: published!.number },
+    ]);
+
+    await db.update(note).set({ visibility: "private" }).where(eq(note.id, noteId!));
+    expect(await listMySubmissions(db, viewerOf(seed.people.amy))).toMatchObject([
+      { id: again.submissionId, noteNumber: null, url: null },
+    ]);
+  });
+
+  it("remembers a linked PDF match made before the original has a note", async () => {
+    const input = { channel: "web" as const, reason: "Same paper" };
+    const original = await submitLink(db, { ...input, submitterId: seed.people.ada.id, url: `${base}/paper.pdf` });
+    const offline: DraftModel = { name: "offline", complete: async () => { throw new Error("Model unavailable"); } };
+    expect(await processNext(deps({ model: offline }))).toBe("retry");
+
+    const url = `${base}/paper-copy.pdf`;
+    const firstMatch = await submitLink(db, { ...input, submitterId: seed.people.dan.id, url });
+    expect(await processNext(deps())).toBe("duplicate");
+    expect((await statusOf(firstMatch.submissionId)).noteId).toBeNull();
+
+    expect(await processNext(deps(), new Date(Date.now() + 3_600_000))).toBe("drafted");
+    const { noteId } = await statusOf(original.submissionId);
+    const [published] = await db.update(note).set({ status: "published" }).where(eq(note.id, noteId!)).returning();
+
+    const repeat = await submitLink(db, { ...input, submitterId: seed.people.amy.id, url });
+    expect(await processNext(deps({ storage: null, allowPrivateLinks: false }))).toBe("duplicate");
+    expect(await listMySubmissions(db, viewerOf(seed.people.amy))).toMatchObject([
+      { id: repeat.submissionId, noteNumber: published!.number, url: null },
+    ]);
+  });
+
+  it("keeps a duplicate's published note when the byte-matched source was deleted", async () => {
+    const input = { channel: "web" as const, reason: "Same paper" };
+    const original = await submitLink(db, { ...input, submitterId: seed.people.ada.id, url: `${base}/paper.pdf` });
+    const offline: DraftModel = { name: "offline", complete: async () => { throw new Error("Model unavailable"); } };
+    expect(await processNext(deps({ model: offline }))).toBe("retry");
+
+    const [byDoi] = await db.insert(source).values({ kind: "file", doi: "10.1234/climate.2025.001" }).returning();
+    const [published] = await db.insert(note).values({
+      sourceId: byDoi!.id, ownerId: seed.people.ada.id, status: "published", visibility: "all", title: "A study", core: "Core",
+    }).returning();
+    const url = `${base}/paper-copy.pdf`;
+    const firstMatch = await submitLink(db, { ...input, submitterId: seed.people.dan.id, url });
+    expect(await processNext(deps())).toBe("duplicate");
+    expect((await statusOf(firstMatch.submissionId)).noteId).toBe(published!.id);
+
+    await db.delete(source).where(eq(source.id, original.sourceId));
+
+    const repeat = await submitLink(db, { ...input, submitterId: seed.people.amy.id, url });
+    expect(await processNext(deps({ storage: null, allowPrivateLinks: false }))).toBe("duplicate");
+    expect(await listMySubmissions(db, viewerOf(seed.people.amy))).toMatchObject([
+      { id: repeat.submissionId, noteNumber: published!.number, url: null },
+    ]);
+  });
+
   it("keeps the name and type of a Word file behind a link, so a retry can read it again", async () => {
     const { submissionId, sourceId } = await submitLink(db, { submitterId: seed.people.ada.id, channel: "web", reason: "Guideline", url: `${base}/files/guideline` });
     const first = await processNext(deps());
@@ -229,14 +319,28 @@ describe("pipeline", () => {
     expect(await processNext(deps({ dailyDraftLimit: 1 }))).toBeNull();
   });
 
-  it("retries when the model cannot be reached, then parks", async () => {
+  it("retries unexpected model errors and parks without persisting provider details", async () => {
     const down: DraftModel = { name: "down", complete: async () => Promise.reject(new Error("ECONNREFUSED")) };
     const { submissionId } = await upload("a.txt", new TextEncoder().encode(studyText));
     for (let attempt = 1; attempt < MAX_ATTEMPTS; attempt += 1) {
       expect(await processNext(deps({ model: down }), new Date(Date.now() + attempt * 3_600_000))).toBe("retry");
     }
     expect(await processNext(deps({ model: down }), new Date(Date.now() + 10 * 3_600_000))).toBe("parked");
-    expect((await statusOf(submissionId)).statusReason).toMatch(/could not be reached: ECONNREFUSED/);
+    expect((await statusOf(submissionId)).statusReason).toBe("The AI draft could not be completed.");
+  });
+
+  it("hides legacy provider details in the upload and maintenance lists", async () => {
+    const { submissionId } = await upload("a.txt", new TextEncoder().encode(studyText));
+    await db.update(submission).set({
+      status: "parked",
+      statusReason: "The AI model could not be reached: private provider detail",
+    }).where(eq(submission.id, submissionId));
+    expect(await listMySubmissions(db, viewerOf(seed.people.ada))).toMatchObject([
+      { id: submissionId, statusReason: "The AI draft could not be completed." },
+    ]);
+    expect((await maintenanceQueues(db, viewerOf(seed.people.amy))).onHold).toMatchObject([
+      { id: submissionId, statusReason: "The AI draft could not be completed." },
+    ]);
   });
 
   it("parks when the model's answers do not fit the template", async () => {

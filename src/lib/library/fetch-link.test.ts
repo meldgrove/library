@@ -1,6 +1,6 @@
-import { createServer, type Server } from "node:http";
+import http, { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { fetchLink, isPrivateAddress, LinkError } from "./fetch-link";
 
 describe("isPrivateAddress", () => {
@@ -10,8 +10,14 @@ describe("isPrivateAddress", () => {
     }
   });
 
+  it("refuses non-public IPv6 ranges and alternate spellings of mapped IPv4", () => {
+    for (const address of ["::ffff:c000:201", "0:0:0:0:0:ffff:c000:201", "64:ff9b:1::1", "fec0::1", "2002::1", "3fff::1"]) {
+      expect(isPrivateAddress(address), address).toBe(true);
+    }
+  });
+
   it("allows public addresses", () => {
-    for (const address of ["1.1.1.1", "142.250.185.78", "2a00:1450:4001:82a::200e", "::ffff:8.8.8.8"]) {
+    for (const address of ["1.1.1.1", "142.250.185.78", "2a00:1450:4001:82a::200e", "::ffff:8.8.8.8", "::ffff:808:808"]) {
       expect(isPrivateAddress(address), address).toBe(false);
     }
   });
@@ -22,6 +28,7 @@ describe("fetchLink", () => {
   let other: Server;
   let base: string;
   let otherBase: string;
+  let redirectClosed: Promise<void>;
 
   const echo = (request: { headers: Record<string, string | string[] | undefined> }, response: import("node:http").ServerResponse) =>
     response.writeHead(200, { "content-type": "text/plain" }).end(String(request.headers.authorization ?? "none"));
@@ -38,7 +45,8 @@ describe("fetchLink", () => {
       } else if (request.url === "/away") {
         response.writeHead(302, { location: `${otherBase}/echo` }).end();
       } else if (request.url === "/redirect") {
-        response.writeHead(302, { location: "/page" }).end();
+        redirectClosed = new Promise((resolve) => response.once("close", resolve));
+        response.writeHead(302, { location: "/page" }).flushHeaders();
       } else if (request.url === "/loop") {
         response.writeHead(302, { location: "/loop" }).end();
       } else if (request.url === "/big") {
@@ -48,6 +56,11 @@ describe("fetchLink", () => {
         response.writeHead(200, { "content-type": "text/html" });
         const timer = setInterval(() => response.write("."), 50);
         response.on("close", () => clearInterval(timer));
+      } else if (request.url === "/interrupted") {
+        response.writeHead(200, { "content-type": "text/plain", "content-length": "8" }).write("short");
+        response.socket?.end();
+      } else if (request.url === "/invalid-redirect") {
+        response.writeHead(302, { location: "http://[" }).end();
       } else if (request.url === "/missing") {
         response.writeHead(404).end();
       } else {
@@ -74,6 +87,7 @@ describe("fetchLink", () => {
     const result = await fetchLink(`${base}/redirect`, allow);
     expect(result).toMatchObject({ url: `${base}/page`, contentType: "text/html" });
     expect(Buffer.from(result.bytes).toString()).toContain("<title>Page</title>");
+    await redirectClosed;
   });
 
   it("sends extra headers to the link's own origin only", async () => {
@@ -84,8 +98,27 @@ describe("fetchLink", () => {
     expect(await text(`${base}/away`)).toBe("none");
   });
 
+  it("reports a request setup failure without leaving a deadline scheduled", async () => {
+    vi.useFakeTimers();
+    const request = vi.spyOn(http, "request").mockImplementationOnce(() => {
+      throw new Error("transport setup detail");
+    });
+    try {
+      await expect(fetchLink(`${base}/page`, allow)).rejects.toThrow("The site could not be reached.");
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      request.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("gives up on a site that sends slowly, however long it keeps sending", async () => {
     await expect(fetchLink(`${base}/trickle`, { ...allow, maxBytes: 1_000_000, deadlineMs: 300 })).rejects.toThrow(/took too long/);
+  });
+
+  it("returns safe messages when a download is interrupted or redirects to an invalid link", async () => {
+    await expect(fetchLink(`${base}/interrupted`, allow)).rejects.toMatchObject({ message: "The download failed." });
+    await expect(fetchLink(`${base}/invalid-redirect`, allow)).rejects.toMatchObject({ message: "The site redirected to an invalid link." });
   });
 
   it("stops redirect loops, large files, errors, and other schemes", async () => {

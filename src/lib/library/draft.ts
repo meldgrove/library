@@ -236,6 +236,14 @@ export async function draftNote(model: DraftModel, input: DraftInput): Promise<N
   throw lastError ?? new DraftError("The model gave no usable answer.");
 }
 
+// Provider error payloads and SDK error messages can include the prompt or credentials.
+export class DraftProviderError extends Error {
+  constructor(status?: number) {
+    super(status === undefined ? "The AI model could not be reached." : `The AI model answered HTTP ${status}.`);
+    this.name = "DraftProviderError";
+  }
+}
+
 /** Any OpenAI-compatible chat completions API: Mistral, OpenAI, Azure OpenAI, or a self-hosted model. */
 export function createOpenAiCompatibleModel(
   config: Extract<AiConfig, { AI_PROVIDER: "openai-compatible" }>,
@@ -257,12 +265,12 @@ export function createOpenAiCompatibleModel(
           }),
           signal: AbortSignal.timeout(config.AI_TIMEOUT_MS),
         });
-      } catch (error) {
-        throw new Error(`The AI model could not be reached: ${(error as Error).message}`);
+      } catch {
+        throw new DraftProviderError();
       }
       if (!response.ok) {
-        const detail = (await response.text().catch(() => "")).slice(0, 300);
-        throw new Error(`The AI model answered HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
+        await response.body?.cancel().catch(() => undefined);
+        throw new DraftProviderError(response.status);
       }
       const body = (await response.json().catch(() => null)) as { choices?: { message?: { content?: unknown } }[] } | null;
       const content = body?.choices?.[0]?.message?.content;
@@ -345,14 +353,9 @@ export function createAnthropicModel(
           ...fallback,
         });
       } catch (error) {
-        if (error instanceof Anthropic.APIConnectionError) throw new Error(`The AI model could not be reached: ${error.message}`);
-        if (error instanceof Anthropic.APIError) throw new Error(`The AI model answered HTTP ${error.status}: ${error.message.slice(0, 300)}`);
-        throw error;
+        throw new DraftProviderError(error instanceof Anthropic.APIError ? error.status : undefined);
       }
-      if (response.stop_reason === "refusal") {
-        const category = response.stop_details?.category;
-        throw new DraftError(`The AI model declined to draft this source${category ? ` (${category})` : ""}.`);
-      }
+      if (response.stop_reason === "refusal") throw new DraftError("The AI model declined to draft this source.");
       if (response.stop_reason === "max_tokens") throw new DraftError("The AI model's answer was cut off.");
       const text = response.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");
       if (!text) throw new DraftError("The AI model's answer has no text.");

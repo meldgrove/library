@@ -1,7 +1,10 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import * as unpdf from "unpdf";
+import { describe, expect, it, vi } from "vitest";
 import { detectFileType, extractText, fromHtml, mergeOcrPages, parseSidecar, tidyText } from "./extract";
+
+vi.mock("unpdf", { spy: true });
 
 const fixture = async (name: string) => new Uint8Array(await readFile(path.resolve(import.meta.dirname, "../../../tests/fixtures/files", name)));
 const noOcr = { languages: "deu+eng" };
@@ -25,6 +28,14 @@ describe("extractText", () => {
     expect(result.text).toContain("[Page 1]");
     expect(result.text).toContain("42 percent lack funding");
     expect(result.text).toContain("[Page 2]");
+  });
+
+  it("releases the PDF parser even when opening a document fails", async () => {
+    const destroy = vi.fn(async () => {});
+    const getDocument = vi.fn(() => ({ promise: Promise.reject(new Error("Unreadable PDF")), destroy }));
+    vi.mocked(unpdf.getResolvedPDFJS).mockResolvedValueOnce({ getDocument } as unknown as Awaited<ReturnType<typeof unpdf.getResolvedPDFJS>>);
+    await expect(extractText(await fixture("study.pdf"), "pdf", noOcr)).rejects.toThrow("The PDF could not be read.");
+    expect(destroy).toHaveBeenCalledOnce();
   });
 
   it("refuses a scan when OCR is not set up", async () => {

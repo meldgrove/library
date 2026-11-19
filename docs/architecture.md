@@ -32,7 +32,9 @@ email ───────┘   web app · worker · PostgreSQL · object stora
 | `tag_subscription` | Tags each person follows for their weekly email |
 
 A source has at most one note. Originals are stored once; a second upload of
-the same file, link, or DOI becomes a reason on the existing note.
+the same file, link, or DOI can add a reason to the existing note. Only the
+person who first added a link can draft from it. Duplicate uploads do not
+grant access to the original or its saved link and title.
 
 ## The way of an upload
 

@@ -1,13 +1,15 @@
 import path from "node:path";
-import { and, asc, eq, inArray, isNotNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, lte, ne, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { recordAudit, type AuditAction } from "@/lib/audit";
 import type { Database, Transaction } from "@/lib/db/client";
-import { documentType, note, noteReason, noteTag, noteVersion, person, source, sourceText, submission, tag, tagProposal, topicArea } from "@/lib/db/schema";
+import { auditEvent, documentType, note, noteReason, noteTag, noteVersion, person, source, sourceText, submission, tag, tagProposal, topicArea } from "@/lib/db/schema";
 import { errorMessage, logger } from "@/lib/logger";
 import { consumeRateLimit, RateLimitError } from "@/lib/rate-limit";
 import { originalKey, type Storage } from "@/lib/storage";
 import { DUPLICATE_SUBMISSION_REASON, noteRef, notePath, type ScreenFinding, type SubmissionStatus } from "./constants";
-import { draftNote, DraftError, type DraftModel, type NoteDraft } from "./draft";
+import { creatingSubmitterOfSource } from "./access";
+import { draftNote, DraftError, DraftProviderError, type DraftModel, type NoteDraft } from "./draft";
 import { ACCEPTED_TYPES, detectFileType, extractText, ExtractionError, fromHtml, tidyText, type Extracted, type OcrOptions } from "./extract";
 import { fetchLink, LinkError } from "./fetch-link";
 import { findDoi, sha256Hex } from "./identify";
@@ -16,6 +18,7 @@ import { storeOriginal } from "./originals";
 import { describeFindings, screenText } from "./screen";
 import { draftLists } from "./taxonomy";
 import { noteSearchText, snapshotOf } from "./note-text";
+import { safeSubmissionMessage, UPLOAD_PROCESSING_ERROR } from "./submissions";
 
 /*
  * The worker's way for one upload, in a fixed order:
@@ -56,7 +59,7 @@ class Stop {
   constructor(
     readonly status: "quarantined" | "duplicate" | "blocked" | "parked",
     readonly reason: string,
-    readonly extra: { noteId?: string; findings?: ScreenFinding[] } = {},
+    readonly extra: { noteId?: string; findings?: ScreenFinding[]; matchedSourceId?: string } = {},
   ) {}
 }
 
@@ -97,7 +100,7 @@ async function textOfLink(deps: PipelineDeps, row: SourceRow, claimed: Claimed):
   try {
     fetched = await fetchLink(row.url!, { maxBytes: deps.maxBytes, allowPrivateAddresses: deps.allowPrivateLinks });
   } catch (error) {
-    if (error instanceof LinkError) throw new Stop("parked", error.message);
+    if (error instanceof LinkError) throw new Stop("parked", safeSubmissionMessage(error.message));
     throw error;
   }
   const type = detectFileType(fetched.bytes, new URL(fetched.url).pathname, fetched.contentType);
@@ -114,8 +117,15 @@ async function textOfLink(deps: PipelineDeps, row: SourceRow, claimed: Claimed):
   const storage = deps.storage;
   const sourceId = !storage ? row.id : await deps.db.transaction(async (tx) => {
     await storeOriginal(tx, storage, key, fetched.bytes, ACCEPTED_TYPES[type].mimeType);
-    const [sameFile] = await tx.select().from(source).where(and(eq(source.sha256, sha256), ne(source.id, row.id)));
-    if (sameFile) {
+    const [match] = await tx.select({ row: source, creatorId: creatingSubmitterOfSource(deps.db) })
+      .from(source).where(and(eq(source.sha256, sha256), ne(source.id, row.id)));
+    if (match) {
+      const { row: sameFile, creatorId } = match;
+      if (sameFile.kind === "link" && creatorId !== claimed.submitterId) {
+        // Matching bytes do not grant access to another uploader's saved URL.
+        await checkDuplicate(tx, sameFile.id, { rememberMatch: true });
+        throw new Stop("duplicate", DUPLICATE_SUBMISSION_REASON, { matchedSourceId: sameFile.id });
+      }
       // Someone uploaded this file already: the upload belongs to that source.
       await tx.update(submission).set({ sourceId: sameFile.id }).where(eq(submission.id, claimed.id));
       // A source known without its original (e.g. imported) gets it now.
@@ -146,15 +156,64 @@ async function textOfLink(deps: PipelineDeps, row: SourceRow, claimed: Claimed):
   try {
     return { extracted: await extractText(fetched.bytes, type, deps.ocr), sourceId };
   } catch (error) {
-    if (error instanceof ExtractionError) throw new Stop("parked", error.message);
+    if (error instanceof ExtractionError) throw new Stop("parked", safeSubmissionMessage(error.message));
     throw error;
   }
 }
 
+/** A linked file can have moved its creating submission to the source of the same bytes. */
+async function mergedSourceOf(db: Database, row: SourceRow): Promise<string | undefined> {
+  const [moved] = await db
+    .select({ sourceId: submission.sourceId })
+    .from(auditEvent)
+    .innerJoin(submission, eq(submission.id, auditEvent.subjectId))
+    .innerJoin(source, eq(source.id, row.id))
+    .where(and(
+      eq(auditEvent.subjectType, "submission"),
+      eq(auditEvent.action, "submission.received"),
+      eq(auditEvent.createdAt, source.createdAt),
+      sql`${auditEvent.payload}->>'sourceId' = ${row.id}`,
+      ne(submission.sourceId, row.id),
+    ))
+    .limit(1);
+  return moved?.sourceId;
+}
+
+/** A linked PDF can match an existing source before that source has a note. */
+async function recordedDuplicateSourceOf(db: Database, sourceId: string): Promise<string | undefined> {
+  const original = alias(source, "matched_source");
+  const [matched] = await db
+    .select({ sourceId: original.id })
+    .from(submission)
+    .leftJoin(note, eq(note.id, submission.noteId))
+    .leftJoin(auditEvent, and(
+      eq(auditEvent.subjectType, "submission"),
+      eq(auditEvent.subjectId, submission.id),
+      eq(auditEvent.action, "submission.duplicate"),
+    ))
+    // Preserve a recorded note even if the byte-matched source no longer exists.
+    .innerJoin(original, eq(original.id, sql`coalesce(${note.sourceId}, (${auditEvent.payload}->>'matchedSourceId')::uuid)`))
+    .where(and(eq(submission.sourceId, sourceId), eq(submission.status, "duplicate")))
+    .orderBy(desc(submission.statusChangedAt), desc(submission.id))
+    .limit(1);
+  return matched?.sourceId;
+}
+
 /** The source's text: stored from an earlier upload, or extracted now. */
 async function ensureText(deps: PipelineDeps, claimed: Claimed): Promise<{ text: string; sourceId: string }> {
-  const [row] = await deps.db.select().from(source).where(eq(source.id, claimed.sourceId));
-  if (!row) throw new Stop("parked", "The source no longer exists.");
+  const [result] = await deps.db
+    .select({ row: source, creatorId: creatingSubmitterOfSource(deps.db) })
+    .from(source).where(eq(source.id, claimed.sourceId));
+  if (!result) throw new Stop("parked", "The source no longer exists.");
+  const { row, creatorId } = result;
+  if (row.kind === "link" && creatorId !== claimed.submitterId) {
+    // A matching link is not proof the submitter can read the saved document.
+    await checkDuplicate(deps.db, row.id);
+    const matchedSourceId = await recordedDuplicateSourceOf(deps.db, row.id)
+      ?? (creatorId === null ? await mergedSourceOf(deps.db, row) : undefined);
+    if (matchedSourceId) await checkDuplicate(deps.db, matchedSourceId, { rememberMatch: true });
+    throw new Stop("duplicate", DUPLICATE_SUBMISSION_REASON, { matchedSourceId });
+  }
   const [stored] = await deps.db.select({ text: sourceText.text }).from(sourceText).where(eq(sourceText.sourceId, row.id));
   if (stored) return { text: stored.text, sourceId: row.id };
 
@@ -175,7 +234,7 @@ async function ensureText(deps: PipelineDeps, claimed: Claimed): Promise<{ text:
     try {
       extracted = await extractText(bytes, type, deps.ocr);
     } catch (error) {
-      if (error instanceof ExtractionError) throw new Stop("parked", error.message);
+      if (error instanceof ExtractionError) throw new Stop("parked", safeSubmissionMessage(error.message));
       throw error;
     }
   }
@@ -213,13 +272,17 @@ async function existingNoteFor(db: Database | Transaction, sourceId: string) {
   return byDoi;
 }
 
-async function checkDuplicate(db: Database | Transaction, sourceId: string): Promise<void> {
+async function checkDuplicate(
+  db: Database | Transaction,
+  sourceId: string,
+  { rememberMatch = false } = {},
+): Promise<void> {
   const [row] = await db.select({ blockedAt: source.blockedAt }).from(source).where(eq(source.id, sourceId));
   if (row?.blockedAt) throw new Stop("blocked", "This source was discarded before, so the library does not draft it again.");
   const existing = await existingNoteFor(db, sourceId);
   if (!existing) return;
   if (existing.status === "discarded") throw new Stop("blocked", "This source was discarded before, so the library does not draft it again.");
-  throw new Stop("duplicate", DUPLICATE_SUBMISSION_REASON, { noteId: existing.id });
+  throw new Stop("duplicate", DUPLICATE_SUBMISSION_REASON, { noteId: existing.id, matchedSourceId: rememberMatch ? sourceId : undefined });
 }
 
 async function createNote(deps: PipelineDeps, claimed: Claimed, sourceId: string, draft: NoteDraft, now: Date) {
@@ -333,7 +396,11 @@ async function stop(deps: PipelineDeps, claimed: Claimed, result: Stop, now: Dat
       action: `submission.${result.status}` satisfies AuditAction,
       subjectType: "submission",
       subjectId: claimed.id,
-      payload: { reason: result.reason, rules: result.extra.findings?.map((finding) => finding.rule) },
+      payload: {
+        reason: result.reason,
+        rules: result.extra.findings?.map((finding) => finding.rule),
+        matchedSourceId: result.extra.matchedSourceId,
+      },
     });
     const copy = STOP_MESSAGES[result.status];
     const message = { subject: copy.subject, title: copy.subject, text: copy.text(result.reason), path: "/uploads" };
@@ -377,21 +444,24 @@ export async function processNext(deps: PipelineDeps, now: Date = new Date()): P
       return "waiting";
     }
 
-    const [row] = await deps.db.select().from(source).where(eq(source.id, sourceId));
+    const [sourceForDraft] = await deps.db
+      .select({ row: source, creatorId: creatingSubmitterOfSource(deps.db) })
+      .from(source).where(eq(source.id, sourceId));
+    const row = sourceForDraft?.row;
     const lists = await draftLists(deps.db);
     let draft: NoteDraft;
     try {
       draft = await draftNote(deps.model, {
         text,
         detectedTitle: row?.detectedTitle ?? undefined,
-        fileName: row?.fileName ?? undefined,
+        fileName: sourceForDraft?.creatorId === claimed.submitterId ? row?.fileName ?? undefined : undefined,
         url: row?.url ?? undefined,
         reason: claimed.reason,
         ...lists,
       });
     } catch (error) {
       if (error instanceof DraftError) throw new Stop("parked", `The AI draft failed: ${error.message}`);
-      throw new Retry(`The AI model could not be reached: ${errorMessage(error)}`);
+      throw new Retry(error instanceof DraftProviderError ? error.message : "The AI draft could not be completed.");
     }
     await createNote(deps, claimed, sourceId, draft, now);
     log.info("note drafted");
@@ -401,7 +471,7 @@ export async function processNext(deps: PipelineDeps, now: Date = new Date()): P
       log.info({ status: error.status }, "submission stopped");
       return stop(deps, claimed, error, now);
     }
-    const reason = error instanceof Retry ? error.reason : `Unexpected error: ${errorMessage(error)}`;
+    const reason = error instanceof Retry ? error.reason : UPLOAD_PROCESSING_ERROR;
     if (claimed.attempts >= MAX_ATTEMPTS) {
       log.error({ error: reason }, "submission parked after repeated errors");
       return stop(deps, claimed, new Stop("parked", reason.slice(0, 500)), now);
