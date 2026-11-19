@@ -130,6 +130,14 @@ export async function submitLink(db: Database | Transaction, input: SubmitLinkIn
   });
 }
 
+/** Older workers stored raw provider errors in these reasons. */
+export const safeSubmissionReason = sql<string | null>`case
+  when ${submission.status} = 'duplicate' then ${DUPLICATE_SUBMISSION_REASON}
+  when ${submission.statusReason} like 'The AI model could not be reached: %' then 'The AI draft could not be completed.'
+  when ${submission.statusReason} like 'The AI draft failed: The AI model declined to draft this source (%' then
+    'The AI draft failed: The AI model declined to draft this source.'
+  else ${submission.statusReason} end`;
+
 /** A person's uploads, newest first, with their notes when the person can see them. */
 export async function listMySubmissions(db: Database, viewer: Viewer, limit = 100) {
   // Deduplication can associate this upload with someone else's source.
@@ -140,8 +148,7 @@ export async function listMySubmissions(db: Database, viewer: Viewer, limit = 10
       channel: submission.channel,
       reason: submission.reason,
       status: submission.status,
-      // Older duplicate reasons contain a note reference.
-      statusReason: sql<string | null>`case when ${submission.status} = 'duplicate' then ${DUPLICATE_SUBMISSION_REASON} else ${submission.statusReason} end`,
+      statusReason: safeSubmissionReason,
       createdAt: submission.createdAt,
       statusChangedAt: submission.statusChangedAt,
       fileName: sql<string | null>`case when ${showSource} then ${source.fileName} end`,

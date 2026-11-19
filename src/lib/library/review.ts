@@ -13,6 +13,7 @@ import type { NoteFormInput } from "./note-input";
 import { noteSearchText, snapshotOf } from "./note-text";
 import { notifyPerson, notifyMaintainers } from "./notify";
 import { cleanUpOriginals, requestOriginalCleanup } from "./originals";
+import { safeSubmissionReason } from "./submissions";
 
 /*
  * The uploader's review and the maintainers' work. Every command checks, writes,
@@ -355,7 +356,7 @@ export async function maintenanceQueues(db: Database, viewer: Viewer, now: Date 
       .select({
         id: submission.id,
         status: submission.status,
-        statusReason: submission.statusReason,
+        statusReason: safeSubmissionReason,
         screenFindings: submission.screenFindings,
         createdAt: submission.createdAt,
         reason: submission.reason,

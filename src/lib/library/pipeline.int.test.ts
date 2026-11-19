@@ -12,6 +12,7 @@ import { seedDirectory } from "../../../tests/integration/seed";
 import { viewerOf } from "./access";
 import { createFakeModel, type DraftModel } from "./draft";
 import { MAX_ATTEMPTS, processNext, type PipelineDeps } from "./pipeline";
+import { maintenanceQueues } from "./review";
 import { listMySubmissions, submitFile, submitLink } from "./submissions";
 import { ensureDefaultDocumentTypes, importTaxonomy } from "./taxonomy";
 
@@ -237,6 +238,20 @@ describe("pipeline", () => {
     }
     expect(await processNext(deps({ model: down }), new Date(Date.now() + 10 * 3_600_000))).toBe("parked");
     expect((await statusOf(submissionId)).statusReason).toBe("The AI draft could not be completed.");
+  });
+
+  it("hides legacy provider details in the upload and maintenance lists", async () => {
+    const { submissionId } = await upload("a.txt", new TextEncoder().encode(studyText));
+    await db.update(submission).set({
+      status: "parked",
+      statusReason: "The AI model could not be reached: private provider detail",
+    }).where(eq(submission.id, submissionId));
+    expect(await listMySubmissions(db, viewerOf(seed.people.ada))).toMatchObject([
+      { id: submissionId, statusReason: "The AI draft could not be completed." },
+    ]);
+    expect((await maintenanceQueues(db, viewerOf(seed.people.amy))).onHold).toMatchObject([
+      { id: submissionId, statusReason: "The AI draft could not be completed." },
+    ]);
   });
 
   it("parks when the model's answers do not fit the template", async () => {
