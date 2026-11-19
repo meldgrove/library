@@ -8,13 +8,21 @@ import { requireUser } from "@/lib/auth/session";
 import { getUpdaterConfig } from "@/lib/config";
 import { getDb } from "@/lib/db/client";
 import { countMyDrafts, countMaintenanceWork } from "@/lib/library/review";
-import { displayPreferences } from "@/lib/preferences";
+import { displayPreferences, type DateFormat } from "@/lib/preferences";
 import { UPDATES_API } from "@/lib/updates/types";
 
 /** Set by the sidebar (`@meldgrove/ui/sidebar`) when it is opened or collapsed. */
 const SIDEBAR_COOKIE = "sidebar_state";
 
 const DEPLOYMENT_GUIDE = "https://github.com/meldgrove/library/blob/stable/docs/deployment.md#automatic-updates";
+
+/** The locale whose dates read like each date format; en-GB (19 Nov 2026) for YYYY-MM-DD. */
+const DATE_LOCALES: Record<DateFormat, string> = {
+  "DD.MM.YYYY": "de-DE",
+  "YYYY-MM-DD": "en-GB",
+  "DD/MM/YYYY": "en-GB",
+  "MM/DD/YYYY": "en-US",
+};
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const { person } = await requireUser();
@@ -49,9 +57,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           project="library"
           url={UPDATES_API}
           guideUrl={DEPLOYMENT_GUIDE}
-          // Month first or day first, as the person's date format. Not "de-DE" for DD.MM.YYYY:
-          // the package writes relative times ("5 minutes ago") in this locale too.
-          dateLocale={displayPreferences(person).dateFormat === "MM/DD/YYYY" ? "en-US" : "en-GB"}
+          // Dates in the person's date format and time zone, as everywhere in the app.
+          dateLocale={DATE_LOCALES[displayPreferences(person).dateFormat]}
+          timeZone={displayPreferences(person).timeZone}
         >
           {inset}
         </UpdatesProvider>
