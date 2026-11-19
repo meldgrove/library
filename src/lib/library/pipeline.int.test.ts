@@ -239,6 +239,28 @@ describe("pipeline", () => {
     ]);
   });
 
+  it("remembers a linked PDF match made before the original has a note", async () => {
+    const input = { channel: "web" as const, reason: "Same paper" };
+    const original = await submitLink(db, { ...input, submitterId: seed.people.ada.id, url: `${base}/paper.pdf` });
+    const offline: DraftModel = { name: "offline", complete: async () => { throw new Error("Model unavailable"); } };
+    expect(await processNext(deps({ model: offline }))).toBe("retry");
+
+    const url = `${base}/paper-copy.pdf`;
+    const firstMatch = await submitLink(db, { ...input, submitterId: seed.people.dan.id, url });
+    expect(await processNext(deps())).toBe("duplicate");
+    expect((await statusOf(firstMatch.submissionId)).noteId).toBeNull();
+
+    expect(await processNext(deps(), new Date(Date.now() + 3_600_000))).toBe("drafted");
+    const { noteId } = await statusOf(original.submissionId);
+    const [published] = await db.update(note).set({ status: "published" }).where(eq(note.id, noteId!)).returning();
+
+    const repeat = await submitLink(db, { ...input, submitterId: seed.people.amy.id, url });
+    expect(await processNext(deps({ storage: null, allowPrivateLinks: false }))).toBe("duplicate");
+    expect(await listMySubmissions(db, viewerOf(seed.people.amy))).toMatchObject([
+      { id: repeat.submissionId, noteNumber: published!.number, url: null },
+    ]);
+  });
+
   it("keeps the name and type of a Word file behind a link, so a retry can read it again", async () => {
     const { submissionId, sourceId } = await submitLink(db, { submitterId: seed.people.ada.id, channel: "web", reason: "Guideline", url: `${base}/files/guideline` });
     const first = await processNext(deps());

@@ -1,5 +1,6 @@
 import path from "node:path";
 import { and, asc, desc, eq, inArray, isNotNull, lte, ne, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { recordAudit, type AuditAction } from "@/lib/audit";
 import type { Database, Transaction } from "@/lib/db/client";
 import { auditEvent, documentType, note, noteReason, noteTag, noteVersion, person, source, sourceText, submission, tag, tagProposal, topicArea } from "@/lib/db/schema";
@@ -58,7 +59,7 @@ class Stop {
   constructor(
     readonly status: "quarantined" | "duplicate" | "blocked" | "parked",
     readonly reason: string,
-    readonly extra: { noteId?: string; findings?: ScreenFinding[] } = {},
+    readonly extra: { noteId?: string; findings?: ScreenFinding[]; matchedSourceId?: string } = {},
   ) {}
 }
 
@@ -122,8 +123,8 @@ async function textOfLink(deps: PipelineDeps, row: SourceRow, claimed: Claimed):
       const { row: sameFile, creatorId } = match;
       if (sameFile.kind === "link" && creatorId !== claimed.submitterId) {
         // Matching bytes do not grant access to another uploader's saved URL.
-        await checkDuplicate(tx, sameFile.id);
-        throw new Stop("duplicate", DUPLICATE_SUBMISSION_REASON);
+        await checkDuplicate(tx, sameFile.id, { rememberMatch: true });
+        throw new Stop("duplicate", DUPLICATE_SUBMISSION_REASON, { matchedSourceId: sameFile.id });
       }
       // Someone uploaded this file already: the upload belongs to that source.
       await tx.update(submission).set({ sourceId: sameFile.id }).where(eq(submission.id, claimed.id));
@@ -178,12 +179,19 @@ async function mergedSourceOf(db: Database, row: SourceRow): Promise<string | un
   return moved?.sourceId;
 }
 
-/** The file match of a linked PDF can be recorded without moving its submission. */
+/** A linked PDF can match an existing source before that source has a note. */
 async function recordedDuplicateSourceOf(db: Database, sourceId: string): Promise<string | undefined> {
+  const original = alias(source, "matched_source");
   const [matched] = await db
-    .select({ sourceId: note.sourceId })
+    .select({ sourceId: original.id })
     .from(submission)
-    .innerJoin(note, eq(note.id, submission.noteId))
+    .leftJoin(note, eq(note.id, submission.noteId))
+    .leftJoin(auditEvent, and(
+      eq(auditEvent.subjectType, "submission"),
+      eq(auditEvent.subjectId, submission.id),
+      eq(auditEvent.action, "submission.duplicate"),
+    ))
+    .innerJoin(original, eq(original.id, sql`coalesce((${auditEvent.payload}->>'matchedSourceId')::uuid, ${note.sourceId})`))
     .where(and(eq(submission.sourceId, sourceId), eq(submission.status, "duplicate")))
     .orderBy(desc(submission.statusChangedAt), desc(submission.id))
     .limit(1);
@@ -202,8 +210,8 @@ async function ensureText(deps: PipelineDeps, claimed: Claimed): Promise<{ text:
     await checkDuplicate(deps.db, row.id);
     const matchedSourceId = await recordedDuplicateSourceOf(deps.db, row.id)
       ?? (creatorId === null ? await mergedSourceOf(deps.db, row) : undefined);
-    if (matchedSourceId) await checkDuplicate(deps.db, matchedSourceId);
-    throw new Stop("duplicate", DUPLICATE_SUBMISSION_REASON);
+    if (matchedSourceId) await checkDuplicate(deps.db, matchedSourceId, { rememberMatch: true });
+    throw new Stop("duplicate", DUPLICATE_SUBMISSION_REASON, { matchedSourceId });
   }
   const [stored] = await deps.db.select({ text: sourceText.text }).from(sourceText).where(eq(sourceText.sourceId, row.id));
   if (stored) return { text: stored.text, sourceId: row.id };
@@ -263,13 +271,17 @@ async function existingNoteFor(db: Database | Transaction, sourceId: string) {
   return byDoi;
 }
 
-async function checkDuplicate(db: Database | Transaction, sourceId: string): Promise<void> {
+async function checkDuplicate(
+  db: Database | Transaction,
+  sourceId: string,
+  { rememberMatch = false } = {},
+): Promise<void> {
   const [row] = await db.select({ blockedAt: source.blockedAt }).from(source).where(eq(source.id, sourceId));
   if (row?.blockedAt) throw new Stop("blocked", "This source was discarded before, so the library does not draft it again.");
   const existing = await existingNoteFor(db, sourceId);
   if (!existing) return;
   if (existing.status === "discarded") throw new Stop("blocked", "This source was discarded before, so the library does not draft it again.");
-  throw new Stop("duplicate", DUPLICATE_SUBMISSION_REASON, { noteId: existing.id });
+  throw new Stop("duplicate", DUPLICATE_SUBMISSION_REASON, { noteId: existing.id, matchedSourceId: rememberMatch ? sourceId : undefined });
 }
 
 async function createNote(deps: PipelineDeps, claimed: Claimed, sourceId: string, draft: NoteDraft, now: Date) {
@@ -383,7 +395,11 @@ async function stop(deps: PipelineDeps, claimed: Claimed, result: Stop, now: Dat
       action: `submission.${result.status}` satisfies AuditAction,
       subjectType: "submission",
       subjectId: claimed.id,
-      payload: { reason: result.reason, rules: result.extra.findings?.map((finding) => finding.rule) },
+      payload: {
+        reason: result.reason,
+        rules: result.extra.findings?.map((finding) => finding.rule),
+        matchedSourceId: result.extra.matchedSourceId,
+      },
     });
     const copy = STOP_MESSAGES[result.status];
     const message = { subject: copy.subject, title: copy.subject, text: copy.text(result.reason), path: "/uploads" };
