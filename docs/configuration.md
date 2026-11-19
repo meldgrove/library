@@ -249,10 +249,11 @@ The update button for admins asks the updater service
 | `UPDATER_URL` | `http://updater:8080`, the `updater` service of `compose.yaml` | The updater's API. With `compose.yaml`, an empty value falls back to the default. Only where the library reads its environment directly (outside Docker Compose), empty switches the update button off; unlike other variables, empty is not unset there |
 
 With Docker Compose, the `updater` service reads `UPDATE_COOLDOWN` (default
-`3d`), `UPDATE_WINDOW`, and `TZ`; on Coolify `UPDATE_DEPLOY_HOOK_URL` and
-`UPDATE_DEPLOY_HOOK_TOKEN`; and for a private copy of the image
+`3d`), `UPDATE_WINDOW`, and `TZ`, and for a private copy of the image
 `UPDATE_REGISTRY_USERNAME` and `UPDATE_REGISTRY_PASSWORD`
-([deployment](deployment.md#automatic-updates)).
+([deployment](deployment.md#automatic-updates)). On Coolify, it also reads
+`UPDATE_DEPLOY_HOOK_URL` and `UPDATE_DEPLOY_HOOK_TOKEN`
+([Coolify](coolify.md#automatic-updates)).
 
 ## Time zone
 
