@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import journal from "../../../drizzle/meta/_journal.json";
+import { errorMessage } from "@/lib/logger";
 
 export interface Readiness {
   ready: boolean;
@@ -34,7 +35,7 @@ export async function checkReadiness(pool: Pool, expectedMillis = latestMigratio
     checks.migrations = applied >= expectedMillis;
     return { ready: checks.database && checks.migrations, checks };
   } catch (error) {
-    return { ready: false, checks, error: error instanceof Error ? error.message : String(error) };
+    return { ready: false, checks, error: errorMessage(error) };
   }
 }
 
