@@ -129,6 +129,28 @@ describe("following an installation", () => {
     expect(store.readUpdates().wait).toMatchObject({ startedAt: "2026-11-19T10:30:00Z" });
   });
 
+  it("forgets the attempt when it is done, and reaches done only once before the page reloads", async () => {
+    replies.status = () => json(200, answer(status({ installing: INSTALLING })));
+    await store.updates.refresh();
+    expect(storage.has("library.update-install")).toBe(true);
+    const installed = { version: "0.2.1", result: "installed" as const, message: null, finishedAt: "2026-11-19T10:00:30Z" };
+    replies.status = () => json(200, answer(status({ installed: "0.2.1", last: installed }), { app: { version: "0.2.1" } }));
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(store.readUpdates()).toMatchObject({ done: "0.2.1", wait: null });
+    expect(storage.has("library.update-install")).toBe(false);
+
+    // Until the reload, no poll runs, and no later answer (every 5 minutes, on focus) follows an installation again.
+    const requests = statusRequests();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(statusRequests()).toBe(requests);
+    replies.status = () => json(200, answer(status({ installing: { ...INSTALLING, startedAt: "2026-11-19T10:01:00Z" } })));
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    win.dispatchEvent(new Event("focus"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store.readUpdates()).toMatchObject({ done: "0.2.1", wait: null });
+    expect(storage.has("library.update-install")).toBe(false);
+  });
+
   it("stops every automatic request at a sign-in page and keeps the attempt", async () => {
     replies.status = () => json(200, answer(status({ installing: INSTALLING })));
     await store.updates.refresh();
