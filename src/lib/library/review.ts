@@ -7,7 +7,7 @@ import { documentType, note, noteTag, noteVersion, notificationDelivery, person,
 import { errorMessage, logger } from "@/lib/logger";
 import { requestWebhookSync } from "@/lib/webhook/sync";
 import type { Storage } from "@/lib/storage";
-import { canEditNote, visibleNotes, visibleTagProposals, type Viewer } from "./access";
+import { noteSourceFileName, canEditNote, visibleNotes, visibleTagProposals, type Viewer } from "./access";
 import { NOTE_LIMITS, notePath, noteRef } from "./constants";
 import type { NoteFormInput } from "./note-input";
 import { noteSearchText, snapshotOf } from "./note-text";
@@ -361,7 +361,7 @@ export async function maintenanceQueues(db: Database, viewer: Viewer, now: Date 
         createdAt: submission.createdAt,
         reason: submission.reason,
         submitterName: person.displayName,
-        fileName: sql<string | null>`case when ${showSource} then ${source.fileName} end`,
+        fileName: sql<string | null>`case when ${showSource} then ${noteSourceFileName(db)} end`,
         url: sql<string | null>`case when ${showSource} then ${source.url} end`,
         sourceId: source.id,
         hasOriginal: sql<boolean>`(${showSource} and ${source.storageKey} is not null)`,

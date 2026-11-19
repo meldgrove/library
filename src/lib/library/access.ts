@@ -74,3 +74,9 @@ export function creatingSubmitterOfSource(db: Database): SQL<string | null> {
     .orderBy(original.id).limit(1);
   return sql<string | null>`(${uploader})`;
 }
+
+/** A note drafted by a second uploader must not reveal the first uploader's filename. */
+export function noteSourceFileName(db: Database): SQL<string | null> {
+  const mayShow = or(isNull(note.id), eq(creatingSubmitterOfSource(db), note.ownerId));
+  return sql<string | null>`case when ${mayShow} then ${source.fileName} end`;
+}

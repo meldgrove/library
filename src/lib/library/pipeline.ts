@@ -416,14 +416,17 @@ export async function processNext(deps: PipelineDeps, now: Date = new Date()): P
       return "waiting";
     }
 
-    const [row] = await deps.db.select().from(source).where(eq(source.id, sourceId));
+    const [sourceForDraft] = await deps.db
+      .select({ row: source, creatorId: creatingSubmitterOfSource(deps.db) })
+      .from(source).where(eq(source.id, sourceId));
+    const row = sourceForDraft?.row;
     const lists = await draftLists(deps.db);
     let draft: NoteDraft;
     try {
       draft = await draftNote(deps.model, {
         text,
         detectedTitle: row?.detectedTitle ?? undefined,
-        fileName: row?.fileName ?? undefined,
+        fileName: sourceForDraft?.creatorId === claimed.submitterId ? row?.fileName ?? undefined : undefined,
         url: row?.url ?? undefined,
         reason: claimed.reason,
         ...lists,

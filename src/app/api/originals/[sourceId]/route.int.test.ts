@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db/client";
 import { note, source, sourceText, submission } from "@/lib/db/schema";
 import { viewerOf } from "@/lib/library/access";
 import { createFakeModel } from "@/lib/library/draft";
+import { getNoteByNumber } from "@/lib/library/notes";
 import { maintenanceQueues } from "@/lib/library/review";
 import { processNext } from "@/lib/library/pipeline";
 import { listMySubmissions, submitFile, submitLink } from "@/lib/library/submissions";
@@ -79,4 +80,30 @@ it("keeps a file original with its first uploader before a note exists", async (
   expect((await download()).status).toBe(404);
   vi.mocked(getCurrentPerson).mockResolvedValue(people.ada);
   expect((await download()).status).toBe(200);
+});
+
+it("uses a neutral filename when someone else drafts a note from the same bytes", async () => {
+  const { people } = await seedDirectory(db);
+  const bytes = new TextEncoder().encode("A study of urban heat and the effect of shade in different neighborhoods. ".repeat(4));
+  const storage: Storage = { kind: "filesystem", get: async () => bytes, exists: async () => false, put: vi.fn(), delete: vi.fn() };
+  const input = { channel: "web" as const, reason: "For later", bytes };
+  const first = await submitFile(db, storage, { ...input, fileName: "first.txt", submitterId: people.ada.id }, 1024);
+  await db.update(submission).set({ status: "parked" }).where(eq(submission.id, first.submissionId));
+  await submitFile(db, storage, { ...input, fileName: "second.txt", submitterId: people.dan.id }, 1024);
+
+  const model = createFakeModel();
+  const complete = vi.spyOn(model, "complete");
+  expect(await processNext({ db, model, storage, maxBytes: 1024, dailyDraftLimit: 10, ocr: { languages: "eng" } })).toBe("drafted");
+  expect(complete).toHaveBeenCalledOnce();
+  expect(JSON.stringify(complete.mock.calls[0])).not.toContain("first.txt");
+  const [draft] = await db.select().from(note);
+  expect(await getNoteByNumber(db, draft!.number)).toMatchObject({ source: { fileName: null } });
+  expect(await listMySubmissions(db, viewerOf(people.dan))).toMatchObject([{ fileName: null }]);
+
+  vi.mocked(getDb).mockReturnValue(db);
+  vi.mocked(getStorage).mockReturnValue(storage);
+  vi.mocked(getCurrentPerson).mockResolvedValue(people.dan);
+  const downloaded = await GET(new Request("https://library.example.org"), { params: Promise.resolve({ sourceId: first.sourceId }) });
+  expect(downloaded.status).toBe(200);
+  expect(downloaded.headers.get("content-disposition")).toContain('filename="source"');
 });

@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { documentType, note, noteReason, noteTag, person, source, tag, tagCluster, team, topicArea } from "@/lib/db/schema";
-import { visibleNotes, type Viewer } from "./access";
+import { noteSourceFileName, visibleNotes, type Viewer } from "./access";
 
 /* Reading notes: one note with everything its page shows, and lists for browsing and search. */
 
@@ -17,7 +17,7 @@ export async function getNoteByNumber(db: Database, number: number) {
         id: source.id,
         kind: source.kind,
         url: source.url,
-        fileName: source.fileName,
+        fileName: noteSourceFileName(db),
         mimeType: source.mimeType,
         sizeBytes: source.sizeBytes,
         storageKey: source.storageKey,

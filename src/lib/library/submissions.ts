@@ -4,7 +4,7 @@ import { CommandError } from "@/lib/commands";
 import type { Database, Transaction } from "@/lib/db/client";
 import { note, person, source, submission } from "@/lib/db/schema";
 import { originalKey, type Storage } from "@/lib/storage";
-import { creatingSubmitterOfSource, visibleNotes, type Viewer } from "./access";
+import { creatingSubmitterOfSource, noteSourceFileName, visibleNotes, type Viewer } from "./access";
 import { DUPLICATE_SUBMISSION_REASON, NOTE_LIMITS, OPEN_SUBMISSION_STATUSES, type SubmissionChannel } from "./constants";
 import { ACCEPTED_LABELS, ACCEPTED_TYPES, detectFileType } from "./file-types";
 import { normalizeUrl, sha256Hex } from "./identify";
@@ -166,7 +166,7 @@ export async function listMySubmissions(db: Database, viewer: Viewer, limit = 10
       statusReason: safeSubmissionReason,
       createdAt: submission.createdAt,
       statusChangedAt: submission.statusChangedAt,
-      fileName: sql<string | null>`case when ${showSource} then ${source.fileName} end`,
+      fileName: sql<string | null>`case when ${showSource} then ${noteSourceFileName(db)} end`,
       url: sql<string | null>`case when ${showSource} then ${source.url} end`,
       detectedTitle: sql<string | null>`case when ${showSource} then ${source.detectedTitle} end`,
       noteNumber: note.number,

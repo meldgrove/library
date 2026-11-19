@@ -3,7 +3,7 @@ import { canMaintain } from "@/lib/auth/roles";
 import { getCurrentPerson } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { note, source } from "@/lib/db/schema";
-import { creatingSubmitterOfSource, viewerOf, visibleNotes } from "@/lib/library/access";
+import { creatingSubmitterOfSource, noteSourceFileName, viewerOf, visibleNotes } from "@/lib/library/access";
 import { getStorage } from "@/lib/storage";
 
 /*
@@ -25,7 +25,7 @@ export async function GET(_request: Request, { params }: RouteContext<"/api/orig
   const db = getDb();
   const beforeNote = and(isNull(note.id), canMaintain(person.role) ? undefined : eq(creatingSubmitterOfSource(db), person.id));
   const [row] = await db
-    .select({ storageKey: source.storageKey, mimeType: source.mimeType, fileName: source.fileName })
+    .select({ storageKey: source.storageKey, mimeType: source.mimeType, fileName: noteSourceFileName(db) })
     .from(source)
     .leftJoin(note, eq(note.sourceId, source.id))
     .where(and(
