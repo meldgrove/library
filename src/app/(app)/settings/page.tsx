@@ -1,8 +1,8 @@
+import { Card, CardContent, CardHeader, CardTitle } from "@meldgrove/ui/card";
 import type { Metadata } from "next";
 import { PreferencesForm } from "@/components/settings/preferences-form";
 import { SubscriptionsForm } from "@/components/settings/subscriptions-form";
 import { PageHeader } from "@/components/page-header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getFormatter, requireUser } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { subscriptionOptions } from "@/lib/library/subscriptions";

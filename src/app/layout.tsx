@@ -1,3 +1,4 @@
+import { Toaster } from "@meldgrove/ui/sonner";
 import type { Metadata } from "next";
 import { connection } from "next/server";
 import "./globals.css";
@@ -14,7 +15,10 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   await connection();
   return (
     <html lang="en-US">
-      <body>{children}</body>
+      <body>
+        {children}
+        <Toaster />
+      </body>
     </html>
   );
 }

@@ -1,11 +1,11 @@
+import { Badge } from "@meldgrove/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@meldgrove/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@meldgrove/ui/table";
 import type { Metadata } from "next";
 import { DigestChannelForm } from "@/components/admin/digest-channel-form";
 import { ActionButton } from "@/components/admin/directory-forms";
 import { NameForm } from "@/components/form/name-forms";
 import { PageHeader } from "@/components/page-header";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireAdmin } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { getDirectory } from "@/lib/directory/directory";

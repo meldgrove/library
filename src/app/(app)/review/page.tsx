@@ -1,8 +1,8 @@
+import { Badge } from "@meldgrove/ui/badge";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@meldgrove/ui/empty";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
-import { Badge } from "@/components/ui/badge";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { getFormatter, requireUser } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { notePath, noteRef } from "@/lib/library/constants";

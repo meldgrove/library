@@ -1,5 +1,5 @@
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@meldgrove/ui/card";
 import { ActionButton } from "@/components/admin/directory-forms";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { NoteDetail } from "@/lib/library/notes";
 import { formatKeyPoints, formatQuotes } from "@/lib/library/note-input";
 import type { reviewOptions } from "@/lib/library/notes";

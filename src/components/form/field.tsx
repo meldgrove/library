@@ -1,6 +1,6 @@
+import { Alert, AlertDescription } from "@meldgrove/ui/alert";
+import { Field as FieldRoot, FieldDescription, FieldError, FieldLabel } from "@meldgrove/ui/field";
 import { CircleAlert } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Field as FieldRoot, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 
 interface FieldProps {
   id: string;

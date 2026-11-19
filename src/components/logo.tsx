@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@meldgrove/ui/utils";
 
 /** The library mark, books on a shelf, as in the app icon (`src/app/icon.svg`). */
 export function Logo({ className }: { className?: string }) {

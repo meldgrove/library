@@ -86,20 +86,21 @@ test("an admin installs an available update from the header", async ({ page }) =
   await expect(button).toBeVisible();
 
   await button.click();
-  const popover = page.getByTestId("update-popover");
+  const popover = page.locator("[data-slot=popover-content]");
   await expect(popover).toContainText("Update available");
   await expect(popover.getByRole("listitem")).toHaveText(["Show who changed a note last", "Fix the sign-in loop behind some proxies"]);
   await expect(popover).toContainText("Installed: 0.2.0 · Stable");
   await expectAccessible(page);
 
   await popover.getByRole("button", { name: "Install now" }).click();
-  const dialog = page.getByRole("dialog", { name: "Install 0.2.1 now?" });
+  const dialog = page.getByRole("alertdialog", { name: "Install 0.2.1 now?" });
   await expect(dialog).toContainText("Database changes run automatically.");
   await dialog.getByRole("button", { name: "Install" }).click();
 
   await expect(page.locator('[data-update-state="installing"]')).toBeVisible();
   const reload = page.waitForEvent("load");
-  await expect(page.getByRole("status").filter({ hasText: "Updated to 0.2.1" })).toBeVisible();
+  // The toast of @meldgrove/ui/updates (sonner), before the page reloads.
+  await expect(page.locator("[data-sonner-toast]").filter({ hasText: "Updated to 0.2.1" })).toBeVisible();
   await reload;
   await expect(page.getByRole("button", { name: "Up to date · 0.2.1" })).toBeVisible();
 });

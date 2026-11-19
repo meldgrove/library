@@ -1,7 +1,7 @@
+import { Button } from "@meldgrove/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@meldgrove/ui/collapsible";
+import { cn } from "@meldgrove/ui/utils";
 import { ChevronDown } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { cn } from "@/lib/utils";
 
 interface DisclosureProps {
   title: React.ReactNode;

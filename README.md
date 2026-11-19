@@ -82,5 +82,6 @@ the library itself; see [Deployment](docs/deployment.md).
 ## Stack
 
 Next.js 16 (App Router, Server Actions), TypeScript, PostgreSQL 18 with
-Drizzle ORM, Better Auth, pg-boss, Tailwind CSS with shadcn/ui, Vitest, and
+Drizzle ORM, Better Auth, pg-boss, Tailwind CSS with shadcn/ui (from the
+shared [@meldgrove/ui](https://github.com/meldgrove/ui)), Vitest, and
 Playwright.

@@ -1,6 +1,6 @@
+import { cn } from "@meldgrove/ui/utils";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { cn } from "@/lib/utils";
 
 /**
  * Renders entry Markdown (GitHub flavor). Raw HTML is never rendered, and

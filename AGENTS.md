@@ -12,10 +12,11 @@ published notes on. User documentation is in `docs/` (start with
 Next.js 16 (App Router, Server Actions, `src/proxy.ts`), Node.js 26, npm,
 strict TypeScript, PostgreSQL 18 with Drizzle ORM (`pg` driver), Better Auth
 with one OpenID Connect provider (PKCE), pg-boss worker, zod 4, Tailwind 4
-with shadcn/ui (Radix), pino, Vitest, Playwright. Text extraction: unpdf,
-mammoth, Readability with linkedom; OCR through `ocrmypdf`. Storage: the
-filesystem or S3 (`@aws-sdk/client-s3`). AI model: Anthropic's Claude API
-(`@anthropic-ai/sdk`) or any OpenAI-compatible chat completions API.
+with `@meldgrove/ui` (the shared shadcn/ui components and theme of the
+Meldgrove apps, Radix), sonner, pino, Vitest, Playwright. Text extraction:
+unpdf, mammoth, Readability with linkedom; OCR through `ocrmypdf`. Storage:
+the filesystem or S3 (`@aws-sdk/client-s3`). AI model: Anthropic's Claude
+API (`@anthropic-ai/sdk`) or any OpenAI-compatible chat completions API.
 
 ## Layout
 
@@ -23,9 +24,13 @@ filesystem or S3 (`@aws-sdk/client-s3`). AI model: Anthropic's Claude API
   check access, validate input with zod, call a module. Uploads go through the
   route handler `src/app/api/uploads/route.ts` (no Server Action body limit).
   `src/app/-/healthz` and `src/app/-/readyz` are the health checks.
-- `src/components/ui/`: shadcn/ui components (new-york-v4), copied into the
-  repository; there is no `shadcn` package. `src/components/library/`: the
-  library's own components.
+- `@meldgrove/ui`: the shadcn/ui components (`@meldgrove/ui/<name>`), `cn`
+  (`@meldgrove/ui/utils`), the theme (imported in `src/app/globals.css`), the
+  toaster (root layout), and the update button with the Updates card
+  (`@meldgrove/ui/updates`; the provider in `src/app/(app)/layout.tsx`
+  connects them to `/api/admin/updates`). Change or add components in the
+  package, not here. `src/components/library/`: the library's own
+  components.
 - `src/lib/library/`: the domain. `submissions.ts` (every way in),
   `pipeline.ts` (the worker's steps), `extract.ts`, `fetch-link.ts`,
   `screen.ts`, `identify.ts`, `draft.ts` (AI model and answer checks),

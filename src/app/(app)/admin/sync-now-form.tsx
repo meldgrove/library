@@ -1,8 +1,8 @@
 "use client";
 
+import { Button } from "@meldgrove/ui/button";
+import { cn } from "@meldgrove/ui/utils";
 import { useActionState } from "react";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { syncDirectoryAction, type SyncActionState } from "./actions";
 
 export function SyncNowForm() {
