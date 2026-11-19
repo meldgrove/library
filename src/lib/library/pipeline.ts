@@ -6,7 +6,7 @@ import { documentType, note, noteReason, noteTag, noteVersion, person, project, 
 import { errorMessage, logger } from "@/lib/logger";
 import { consumeRateLimit, RateLimitError } from "@/lib/rate-limit";
 import { originalKey, type Storage } from "@/lib/storage";
-import { noteRef, notePath, type ScreenFinding, type SubmissionStatus } from "./constants";
+import { DUPLICATE_SUBMISSION_REASON, noteRef, notePath, type ScreenFinding, type SubmissionStatus } from "./constants";
 import { draftNote, DraftError, type DraftModel, type NoteDraft } from "./draft";
 import { ACCEPTED_TYPES, detectFileType, extractText, ExtractionError, fromHtml, tidyText, type Extracted, type OcrOptions } from "./extract";
 import { fetchLink, LinkError } from "./fetch-link";
@@ -200,12 +200,12 @@ async function ensureText(deps: PipelineDeps, claimed: Claimed): Promise<{ text:
 
 /** The note of this source, or of another source with the same DOI. */
 async function existingNoteFor(db: Database | Transaction, sourceId: string) {
-  const [own] = await db.select({ id: note.id, number: note.number, title: note.title, status: note.status }).from(note).where(eq(note.sourceId, sourceId));
+  const [own] = await db.select({ id: note.id, status: note.status }).from(note).where(eq(note.sourceId, sourceId));
   if (own) return own;
   const [row] = await db.select({ doi: source.doi }).from(source).where(eq(source.id, sourceId));
   if (!row?.doi) return undefined;
   const [byDoi] = await db
-    .select({ id: note.id, number: note.number, title: note.title, status: note.status })
+    .select({ id: note.id, status: note.status })
     .from(note)
     .innerJoin(source, eq(source.id, note.sourceId))
     .where(and(eq(source.doi, row.doi), ne(source.id, sourceId)))
@@ -219,7 +219,7 @@ async function checkDuplicate(db: Database | Transaction, sourceId: string): Pro
   const existing = await existingNoteFor(db, sourceId);
   if (!existing) return;
   if (existing.status === "discarded") throw new Stop("blocked", "This source was discarded before, so the library does not draft it again.");
-  throw new Stop("duplicate", `The library has this source already: ${noteRef(existing.number)}.`, { noteId: existing.id });
+  throw new Stop("duplicate", DUPLICATE_SUBMISSION_REASON, { noteId: existing.id });
 }
 
 async function createNote(deps: PipelineDeps, claimed: Claimed, sourceId: string, draft: NoteDraft, now: Date) {
@@ -300,7 +300,7 @@ const STOP_MESSAGES: Record<Stop["status"], { subject: string; text: (reason: st
     text: (reason) => `${reason} A steward checks it and releases or deletes it.`,
     stewards: true,
   },
-  duplicate: { subject: "The library has your upload already", text: (reason) => `${reason} Your reason was added to the note.`, stewards: false },
+  duplicate: { subject: "The library has your upload already", text: (reason) => reason, stewards: false },
   blocked: { subject: "Your upload was not drafted", text: (reason) => reason, stewards: false },
   parked: { subject: "Your upload could not be drafted", text: (reason) => `${reason} A steward will look at it.`, stewards: true },
 };

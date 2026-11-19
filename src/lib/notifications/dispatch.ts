@@ -2,6 +2,7 @@ import { and, asc, eq, isNull, lte } from "drizzle-orm";
 import type { Database, Transaction } from "@/lib/db/client";
 import { note, notificationDelivery, person, type NotificationChannel } from "@/lib/db/schema";
 import { canSeeNote } from "@/lib/library/access";
+import { DUPLICATE_SUBMISSION_REASON } from "@/lib/library/constants";
 import { rebuildDigest } from "@/lib/library/digest";
 import { createDateFormatter, defaultFormatter } from "@/lib/format";
 import { errorMessage, logger } from "@/lib/logger";
@@ -180,6 +181,8 @@ async function send(
   }
   if (!recipient) return new Skip("The recipient no longer exists.");
   if (!recipient.hasAccess) return new Skip("The recipient no longer has access.");
+  // Older queued duplicate messages include a note reference in their text.
+  if (delivery.event === "duplicate") message = { ...message, text: DUPLICATE_SUBMISSION_REASON };
   // A message names its note: send it only while the recipient may still see
   // the note (it may have become private since the message was recorded).
   if (delivery.noteId) {

@@ -9,9 +9,10 @@ import { auditEvent, note, noteReason, noteTag, notificationDelivery, source, so
 import { createFilesystemStorage, type Storage } from "@/lib/storage";
 import { connectTestDatabase } from "../../../tests/integration/db";
 import { seedDirectory } from "../../../tests/integration/seed";
+import { viewerOf } from "./access";
 import { createFakeModel, type DraftModel } from "./draft";
 import { MAX_ATTEMPTS, processNext, type PipelineDeps } from "./pipeline";
-import { submitFile, submitLink } from "./submissions";
+import { listMySubmissions, submitFile, submitLink } from "./submissions";
 import { ensureDefaultDocumentTypes, importTaxonomy } from "./taxonomy";
 
 const testDb = connectTestDatabase();
@@ -112,10 +113,33 @@ describe("pipeline", () => {
     const second = await upload("copy.pdf", bytes, seed.people.dan.id, "Useful for operations");
     expect(await processNext(deps())).toBe("duplicate");
     const row = await statusOf(second.submissionId);
-    expect(row.statusReason).toMatch(/has this source already: LIB-\d+/);
+    expect(row.statusReason).toBe("The library has this source already.");
     expect(await db.select().from(source)).toHaveLength(1);
     const reasons = await db.select({ reason: noteReason.reason }).from(noteReason).where(eq(noteReason.noteId, row.noteId!));
     expect(reasons.map((r) => r.reason)).toEqual(["For the climate program", "Useful for operations"]);
+  });
+
+  it("shows a duplicate's note reference only while the uploader can see the note", async () => {
+    const bytes = await fixture("study.pdf");
+    const first = await upload("study.pdf", bytes);
+    await processNext(deps());
+    const { noteId } = await statusOf(first.submissionId);
+    const [published] = await db.update(note).set({ status: "published" }).where(eq(note.id, noteId!)).returning();
+    const second = await upload("copy.pdf", bytes, seed.people.dan.id);
+    expect(await processNext(deps())).toBe("duplicate");
+
+    const viewer = viewerOf(seed.people.dan);
+    expect(await listMySubmissions(db, viewer)).toMatchObject([{ noteNumber: published!.number }]);
+
+    // Older submissions stored the note reference in free text.
+    await db.update(submission).set({ statusReason: `The library has this source already: LIB-${published!.number}.` }).where(eq(submission.id, second.submissionId));
+    await db.update(note).set({ visibility: "private" }).where(eq(note.id, noteId!));
+    expect(await listMySubmissions(db, viewer)).toMatchObject([{
+      id: second.submissionId,
+      statusReason: "The library has this source already.",
+      noteNumber: null,
+      noteStatus: null,
+    }]);
   });
 
   it("checks again for a note with the same DOI that appeared while drafting", async () => {
