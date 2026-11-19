@@ -66,7 +66,12 @@ async function main() {
     application_name: "library-worker-pgboss",
   });
   boss.on("error", (error) => {
-    logger.error({ err: error }, "pg-boss error");
+    const { queue, worker } = error as { queue?: unknown; worker?: unknown };
+    logger.error({
+      err: error,
+      queue: typeof queue === "string" ? queue : undefined,
+      worker: typeof worker === "string" ? worker : undefined,
+    }, "pg-boss error");
     Sentry.captureException(asError(error));
   });
   await boss.start();

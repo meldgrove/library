@@ -1,11 +1,15 @@
 import { getAuth } from "@/lib/auth/auth";
+import { logger } from "@/lib/logger";
 
-// Better Auth endpoints, including the Keycloak callback
-// /api/auth/callback/keycloak.
-export function GET(request: Request): Promise<Response> {
-  return getAuth().handler(request);
+// Better Auth handles expected API errors and redirects. Log unexpected
+// errors here so the router never prints raw adapter errors to the console.
+async function handleAuth(request: Request): Promise<Response> {
+  try {
+    return await getAuth().handler(request);
+  } catch (error) {
+    logger.error({ component: "auth", err: error }, "Authentication request failed");
+    return new Response(null, { status: 500 });
+  }
 }
 
-export function POST(request: Request): Promise<Response> {
-  return getAuth().handler(request);
-}
+export { handleAuth as GET, handleAuth as POST };

@@ -1,11 +1,13 @@
-import { eq } from "drizzle-orm";
+import { DrizzleQueryError, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { connectTestDatabase } from "../../../tests/integration/db";
 import { startFakeOidcProvider, type FakeOidcProvider, type OidcIdentity } from "../../../tests/integration/oidc-provider";
+import { GET as handleAuthGet } from "@/app/api/auth/[...all]/route";
 import { getPool } from "@/lib/db/client";
 import { authAccount, authSession, person } from "@/lib/db/schema";
 import { createManualDirectory } from "@/lib/directory/manual";
 import { endSessionsForSubjects } from "@/lib/directory/sessions";
+import { logger } from "@/lib/logger";
 import { createAuth, type Auth } from "./auth";
 import { getCurrentPerson } from "./session";
 
@@ -53,8 +55,8 @@ function cookiesOf(response: Response): string {
     .join("; ");
 }
 
-/** Logs in through Better Auth's endpoints like a browser, with the fake provider approving `identity`. */
-async function logIn(identity: OidcIdentity) {
+/** Starts login and returns the provider's callback request. */
+async function loginCallback(identity: OidcIdentity) {
   const start = await auth.handler(
     new Request(`${BASE_URL}/api/auth/sign-in/social`, {
       method: "POST",
@@ -69,7 +71,13 @@ async function logIn(identity: OidcIdentity) {
   const callback = new URL(authorization.searchParams.get("redirect_uri")!);
   callback.searchParams.set("code", code);
   callback.searchParams.set("state", authorization.searchParams.get("state")!);
-  const response = await auth.handler(new Request(callback, { headers: { cookie: cookiesOf(start) } }));
+  return { request: new Request(callback, { headers: { cookie: cookiesOf(start) } }), code };
+}
+
+/** Logs in through Better Auth's endpoints like a browser. */
+async function logIn(identity: OidcIdentity) {
+  const { request, code } = await loginCallback(identity);
+  const response = await auth.handler(request);
   expect(response.status).toBe(302);
   return { response, cookie: cookiesOf(response), code };
 }
@@ -86,6 +94,28 @@ async function addPerson(values: Partial<typeof person.$inferInsert>) {
 }
 
 describe("login with the OIDC provider", () => {
+  it("handles a failed OIDC callback without the router printing database errors", async () => {
+    await addPerson({ oidcSubject: "sub-ada" });
+    const { request } = await loginCallback({ sub: "sub-ada", email: "ada@example.org" });
+    const context = await auth.$context;
+    const failure = new DrizzleQueryError("insert into auth_session (token) values ($1)", ["example-session-token"], new Error("Database offline"));
+    const insert = vi.spyOn(context.internalAdapter, "createSession").mockRejectedValueOnce(failure);
+    const log = vi.spyOn(logger, "error");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await handleAuthGet(request);
+      expect(insert).toHaveBeenCalledOnce();
+      expect(response.status).toBe(500);
+      expect(await response.text()).toBe("");
+      expect(log).toHaveBeenCalledWith({ component: "auth", err: failure }, "Authentication request failed");
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      insert.mockRestore();
+      consoleError.mockRestore();
+      log.mockRestore();
+    }
+  });
+
   it("keeps each session with the person of the `sub` it logged in with", async () => {
     const ada = await addPerson({ oidcSubject: "sub-ada", displayName: "Ada" });
     const bea = await addPerson({ oidcSubject: "sub-bea", displayName: "Bea" });

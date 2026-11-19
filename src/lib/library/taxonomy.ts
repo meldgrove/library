@@ -1,9 +1,10 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { recordAudit } from "@/lib/audit";
 import { CommandError, type Actor } from "@/lib/commands";
 import type { Database, Transaction } from "@/lib/db/client";
 import { documentType, note, noteTag, project, tag, tagCluster, tagProposal } from "@/lib/db/schema";
+import { visibleNotes, visibleTagProposals, type Viewer } from "./access";
 
 /*
  * The closed lists the AI model picks from: tags (grouped in clusters),
@@ -31,6 +32,8 @@ function requireSteward(actor: Actor) {
 }
 
 const lower = (column: typeof tag.name | typeof tagCluster.name | typeof documentType.name | typeof project.name) => sql`lower(${column})`;
+const matchesIds = (column: typeof tagProposal.id | typeof tagProposal.noteId, ids: string[]) =>
+  sql`${column} = any(${sql.param(ids)}::uuid[])`;
 
 /** The active lists, as the AI draft gets them. */
 export async function draftLists(db: Database | Transaction) {
@@ -52,7 +55,7 @@ export async function draftLists(db: Database | Transaction) {
 }
 
 /** Everything for the taxonomy page. */
-export async function getTaxonomy(db: Database) {
+export async function getTaxonomy(db: Database, viewer: Viewer) {
   const [clusters, tags, types, projects, proposals] = await Promise.all([
     db.select().from(tagCluster).orderBy(lower(tagCluster.name)),
     db
@@ -62,9 +65,12 @@ export async function getTaxonomy(db: Database) {
         description: tag.description,
         clusterId: tag.clusterId,
         isActive: tag.isActive,
-        notes: sql<number>`(select count(*)::int from note_tag where note_tag.tag_id = ${tag.id})`,
+        notes: sql<number>`count(${note.id})::int`,
       })
       .from(tag)
+      .leftJoin(noteTag, eq(noteTag.tagId, tag.id))
+      .leftJoin(note, and(eq(note.id, noteTag.noteId), visibleNotes(viewer)))
+      .groupBy(tag.id)
       .orderBy(lower(tag.name)),
     db.select().from(documentType).orderBy(lower(documentType.name)),
     db.select().from(project).orderBy(lower(project.name)),
@@ -79,7 +85,7 @@ export async function getTaxonomy(db: Database) {
       })
       .from(tagProposal)
       .leftJoin(note, eq(note.id, tagProposal.noteId))
-      .where(eq(tagProposal.status, "pending"))
+      .where(and(eq(tagProposal.status, "pending"), visibleTagProposals(viewer)))
       .orderBy(asc(tagProposal.createdAt)),
   ]);
   return { clusters, tags, types, projects, proposals };
@@ -174,6 +180,35 @@ export const setDocumentTypeActive = (db: Database, actor: Actor, id: string, is
 export const createProject = (db: Database, actor: Actor, name: string) => createListEntry(db, actor, project, "project", name);
 export const setProjectActive = (db: Database, actor: Actor, id: string, isActive: boolean) => setListEntryActive(db, actor, project, "project", id, isActive);
 
+/** Lock notes before proposals, in the same order as note edits and deletions. */
+async function lockProposals(tx: Transaction, actor: Actor, proposalId: string) {
+  const viewer = { ...actor, teamId: null };
+  const [target] = await tx.select({ name: tagProposal.name })
+    .from(tagProposal)
+    .leftJoin(note, eq(note.id, tagProposal.noteId))
+    .where(and(eq(tagProposal.id, proposalId), visibleTagProposals(viewer)));
+  if (!target) throw new CommandError("not_found", "This proposal does not exist.");
+
+  const sameName = sql`lower(${tagProposal.name}) = lower(${target.name})`;
+  const candidates = and(sameName, or(eq(tagProposal.id, proposalId), eq(tagProposal.status, "pending")));
+  // Hold visibility stable for every note that may receive a tag.
+  const lockedNotes = await tx.select({ id: note.id })
+    .from(tagProposal)
+    .innerJoin(note, eq(note.id, tagProposal.noteId))
+    .where(and(candidates, visibleNotes(viewer)))
+    .orderBy(asc(note.id))
+    .for("no key update", { of: note });
+  const proposals = await tx.select({ id: tagProposal.id, noteId: tagProposal.noteId, status: tagProposal.status })
+    .from(tagProposal)
+    .where(and(candidates, or(isNull(tagProposal.noteId), matchesIds(tagProposal.noteId, lockedNotes.map(({ id }) => id)))))
+    .orderBy(asc(tagProposal.id))
+    .for("update");
+  const proposal = proposals.find(({ id }) => id === proposalId);
+  if (!proposal) throw new CommandError("not_found", "This proposal does not exist.");
+  if (proposal.status !== "pending") throw new CommandError("invalid", "This proposal was already decided.");
+  return proposals;
+}
+
 /**
  * Accepts a tag proposal: as a new tag, or mapped to an existing one. The tag
  * is added to the note the proposal came from.
@@ -186,9 +221,7 @@ export async function acceptTagProposal(
 ): Promise<void> {
   requireSteward(actor);
   await db.transaction(async (tx) => {
-    const [proposal] = await tx.select().from(tagProposal).where(eq(tagProposal.id, proposalId)).for("update");
-    if (!proposal) throw new CommandError("not_found", "This proposal does not exist.");
-    if (proposal.status !== "pending") throw new CommandError("invalid", "This proposal was already decided.");
+    const proposals = await lockProposals(tx, actor, proposalId);
     let tagId: string;
     if ("existingTagId" in decision) {
       const [existing] = await tx.select({ id: tag.id }).from(tag).where(eq(tag.id, decision.existingTagId));
@@ -200,15 +233,10 @@ export async function acceptTagProposal(
     await tx
       .update(tagProposal)
       .set({ status: "accepted", tagId, resolvedById: actor.personId, resolvedAt: new Date() })
-      .where(eq(tagProposal.id, proposalId));
-    if (proposal.noteId) await tx.insert(noteTag).values({ noteId: proposal.noteId, tagId }).onConflictDoNothing();
-    // The same name proposed for other notes is decided with it.
-    const others = await tx
-      .update(tagProposal)
-      .set({ status: "accepted", tagId, resolvedById: actor.personId, resolvedAt: new Date() })
-      .where(and(eq(tagProposal.status, "pending"), sql`lower(${tagProposal.name}) = lower(${proposal.name})`))
-      .returning({ noteId: tagProposal.noteId });
-    for (const other of others) if (other.noteId) await tx.insert(noteTag).values({ noteId: other.noteId, tagId }).onConflictDoNothing();
+      .where(matchesIds(tagProposal.id, proposals.map(({ id }) => id)));
+    for (const proposal of proposals) {
+      if (proposal.noteId) await tx.insert(noteTag).values({ noteId: proposal.noteId, tagId }).onConflictDoNothing();
+    }
     await recordAudit(tx, { actorId: actor.personId, action: "tag_proposal.accepted", subjectType: "tag_proposal", subjectId: proposalId, payload: { tagId } });
   });
 }
@@ -216,13 +244,11 @@ export async function acceptTagProposal(
 export async function rejectTagProposal(db: Database, actor: Actor, proposalId: string): Promise<void> {
   requireSteward(actor);
   await db.transaction(async (tx) => {
-    const [proposal] = await tx.select().from(tagProposal).where(eq(tagProposal.id, proposalId)).for("update");
-    if (!proposal) throw new CommandError("not_found", "This proposal does not exist.");
-    if (proposal.status !== "pending") throw new CommandError("invalid", "This proposal was already decided.");
+    const proposals = await lockProposals(tx, actor, proposalId);
     await tx
       .update(tagProposal)
       .set({ status: "rejected", resolvedById: actor.personId, resolvedAt: new Date() })
-      .where(and(eq(tagProposal.status, "pending"), sql`lower(${tagProposal.name}) = lower(${proposal.name})`));
+      .where(matchesIds(tagProposal.id, proposals.map(({ id }) => id)));
     await recordAudit(tx, { actorId: actor.personId, action: "tag_proposal.rejected", subjectType: "tag_proposal", subjectId: proposalId });
   });
 }

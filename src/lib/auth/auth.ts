@@ -8,7 +8,7 @@ import { getDb, type Database } from "@/lib/db/client";
 import { authAccount, authSession, authUser, authVerification } from "@/lib/db/schema";
 import { getDirectory, type Directory } from "@/lib/directory/directory";
 import { OIDC_PROVIDER_ID } from "@/lib/directory/sessions";
-import { logger } from "@/lib/logger";
+import { errorMessage, logger } from "@/lib/logger";
 import { hasLoginAccess, NO_ACCESS_ERROR_CODE } from "./access";
 import { discoveryUrl } from "./discovery-url";
 
@@ -50,6 +50,13 @@ export function createAuth({ config, directory, db }: CreateAuthOptions) {
     basePath: "/api/auth",
     secret: config.BETTER_AUTH_SECRET,
     trustedOrigins: [config.LIBRARY_BASE_URL],
+    logger: {
+      log(level, message: unknown, ...details: unknown[]) {
+        // Better Auth normally forwards adapter errors to the console.
+        const err = message instanceof Error ? message : details.find((detail) => detail instanceof Error);
+        logger[level]({ component: "auth", err }, typeof message === "string" ? errorMessage(message) : errorMessage(err));
+      },
+    },
     database: drizzleAdapter(db, {
       provider: "pg",
       schema: { user: authUser, session: authSession, account: authAccount, verification: authVerification },
@@ -71,7 +78,8 @@ export function createAuth({ config, directory, db }: CreateAuthOptions) {
       cookiePrefix: "library",
       useSecureCookies: config.LIBRARY_BASE_URL.startsWith("https://"),
     },
-    onAPIError: { errorURL: `${config.LIBRARY_BASE_URL}/login` },
+    // The route logs unexpected errors using the application serializer.
+    onAPIError: { errorURL: `${config.LIBRARY_BASE_URL}/login`, throw: true },
     databaseHooks: {
       account: {
         create: { after: async (account, context) => rememberLoginAccount(context, account) },

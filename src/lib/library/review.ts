@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, lte, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { recordAudit } from "@/lib/audit";
 import { CommandError, type Actor } from "@/lib/commands";
 import type { Database, Transaction } from "@/lib/db/client";
@@ -6,7 +6,7 @@ import { documentType, note, noteTag, noteVersion, notificationDelivery, person,
 import { errorMessage, logger } from "@/lib/logger";
 import { requestWebhookSync } from "@/lib/webhook/sync";
 import type { Storage } from "@/lib/storage";
-import { canEditNote, visibleNotes, type Viewer } from "./access";
+import { canEditNote, visibleNotes, visibleTagProposals, type Viewer } from "./access";
 import { NOTE_LIMITS, notePath, noteRef } from "./constants";
 import type { NoteFormInput } from "./note-input";
 import { noteSearchText, snapshotOf } from "./note-text";
@@ -275,11 +275,24 @@ export async function deleteSubmission(db: Database, storage: Storage | null, ac
  */
 export async function recordReviewReminders(db: Database, now: Date = new Date()): Promise<{ reminded: number; escalated: number }> {
   return db.transaction(async (tx) => {
-    const due = await tx
-      .select({ id: note.id, number: note.number, title: note.title, ownerId: note.ownerId })
+    const needsReminder = and(isNull(note.reminderSentAt), lte(note.draftedAt, new Date(now.getTime() - REMINDER_AFTER_DAYS * DAY_MS)), eq(person.hasAccess, true));
+    const needsEscalation = and(isNull(note.escalatedAt), ne(note.visibility, "private"), lte(note.draftedAt, new Date(now.getTime() - ESCALATE_AFTER_DAYS * DAY_MS)));
+    // Acquire both sets of note locks in the same order as taxonomy decisions.
+    const drafts = await tx
+      .select({
+        id: note.id,
+        number: note.number,
+        title: note.title,
+        ownerId: note.ownerId,
+        needsReminder: sql<boolean>`${needsReminder}`,
+        needsEscalation: sql<boolean>`${needsEscalation}`,
+      })
       .from(note)
       .innerJoin(person, eq(person.id, note.ownerId))
-      .where(and(eq(note.status, "draft"), isNull(note.reminderSentAt), lte(note.draftedAt, new Date(now.getTime() - REMINDER_AFTER_DAYS * DAY_MS)), eq(person.hasAccess, true)));
+      .where(and(eq(note.status, "draft"), or(needsReminder, needsEscalation)))
+      .orderBy(asc(note.id))
+      .for("no key update", { of: note });
+    const due = drafts.filter((row) => row.needsReminder);
     for (const row of due) {
       await notifyPerson(tx, {
         event: "review_reminder",
@@ -296,12 +309,7 @@ export async function recordReviewReminders(db: Database, now: Date = new Date()
       });
       await tx.update(note).set({ reminderSentAt: now }).where(eq(note.id, row.id));
     }
-    const overdue = await tx
-      .select({ id: note.id, number: note.number, title: note.title })
-      .from(note)
-      .where(
-        and(eq(note.status, "draft"), isNull(note.escalatedAt), ne(note.visibility, "private"), lte(note.draftedAt, new Date(now.getTime() - ESCALATE_AFTER_DAYS * DAY_MS))),
-      );
+    const overdue = drafts.filter((row) => row.needsEscalation);
     for (const row of overdue) {
       await notifyStewards(tx, {
         event: "review_escalated",
@@ -375,7 +383,11 @@ export async function stewardQueues(db: Database, viewer: Viewer, now: Date = ne
       .where(and(visibleNotes(viewer), eq(note.status, "published"), isNull(note.checkedAt), ne(note.visibility, "private")))
       .orderBy(desc(note.publishedAt))
       .limit(50),
-    db.select({ value: sql<number>`count(*)::int` }).from(tagProposal).where(eq(tagProposal.status, "pending")),
+    db
+      .select({ value: sql<number>`count(*)::int` })
+      .from(tagProposal)
+      .leftJoin(note, eq(note.id, tagProposal.noteId))
+      .where(and(eq(tagProposal.status, "pending"), visibleTagProposals(viewer))),
   ]);
   return { onHold, overdue, unchecked, pendingProposals: proposals?.value ?? 0 };
 }

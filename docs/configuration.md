@@ -248,6 +248,9 @@ under **Settings**; the default date format is `DD.MM.YYYY`.
 
 ## Operations
 
+Structured application logs show the PostgreSQL error code when available.
+The database error summaries omit query values and PostgreSQL error details.
+
 | Variable | Default | Value |
 |---|---|---|
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
