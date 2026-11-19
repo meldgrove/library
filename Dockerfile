@@ -4,7 +4,7 @@
 #   migrate  applies database migrations, then exits
 # The scripts in dist/ (taxonomy-import, replay) run with `node dist/<name>.mjs`.
 
-FROM node:26.13.0-bookworm-slim AS base
+FROM node:26.13.1-bookworm-slim AS base
 ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 
