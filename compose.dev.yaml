@@ -26,7 +26,7 @@ services:
       retries: 20
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.6.1
+    image: quay.io/keycloak/keycloak:26.8.2-3
     command: ["start-dev", "--import-realm", "--http-port=8080"]
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
@@ -42,7 +42,7 @@ services:
   # An S3-compatible server for trying the S3 storage driver. The tests
   # create their bucket; MinIO no longer publishes images.
   s3:
-    image: rustfs/rustfs:1.0.4
+    image: rustfs/rustfs:1.0.5
     command: ["/data"]
     environment:
       RUSTFS_ACCESS_KEY: library
@@ -55,7 +55,7 @@ services:
       - s3-data:/data
 
   mailpit:
-    image: axllent/mailpit:v1.32
+    image: axllent/mailpit:v1.33
     ports:
       - "127.0.0.1:1026:1025"
       - "127.0.0.1:8026:8025"
