@@ -50,7 +50,7 @@ test("an admin creates a team and invites a person, who then signs in", async ({
     await signIn(erika, "erika");
     await expect(erika.getByRole("heading", { name: "Library", level: 1 })).toBeVisible();
     // The name from the identity provider replaces the invitation's.
-    await expect(erika.getByRole("button", { name: "Account of Erika Employee" })).toBeVisible();
+    await expect(erika.getByRole("button", { name: /^Erika Employee\s*erika@example\.test$/ })).toBeVisible();
     await page.reload();
     await expect(page.getByRole("row").filter({ hasText: "erika@example.test" })).toContainText("Active");
 
@@ -66,7 +66,7 @@ test("an admin creates a team and invites a person, who then signs in", async ({
 
 test("everyone chooses their own date format and time zone", async ({ page }) => {
   await signIn(page, "adam");
-  await page.getByRole("button", { name: /^Account of / }).click();
+  await page.getByRole("button", { name: /adam@example\.test$/ }).click();
   await page.getByRole("menuitem", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
   // The default is DD.MM.YYYY.
