@@ -97,7 +97,7 @@ it("uses a neutral filename when someone else drafts a note from the same bytes"
   expect(complete).toHaveBeenCalledOnce();
   expect(JSON.stringify(complete.mock.calls[0])).not.toContain("first.txt");
   const [draft] = await db.select().from(note);
-  expect(await getNoteByNumber(db, draft!.number)).toMatchObject({ source: { fileName: null } });
+  expect(await getNoteByNumber(db, draft!.number, viewerOf(people.dan))).toMatchObject({ source: { fileName: null } });
   expect(await listMySubmissions(db, viewerOf(people.dan))).toMatchObject([{ fileName: null }]);
 
   vi.mocked(getDb).mockReturnValue(db);

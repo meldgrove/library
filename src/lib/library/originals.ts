@@ -3,6 +3,7 @@ import type { Database, Transaction } from "@/lib/db/client";
 import { source, storageCleanup } from "@/lib/db/schema";
 import { errorMessage, logger } from "@/lib/logger";
 import type { Storage } from "@/lib/storage";
+import { sourceVisibility, visibleSourceColumns, type Viewer } from "./access";
 
 /*
  * Stored originals are shared by content: one key per SHA-256. Storing a key
@@ -75,6 +76,15 @@ export async function cleanUpOriginals(db: Database, storage: Storage, options: 
     });
   }
   return deleted;
+}
+
+/** The stored original the viewer may download, with the file name they may see; undefined otherwise. */
+export async function findOriginal(db: Database, viewer: Viewer, sourceId: string) {
+  const [row] = await db
+    .select({ storageKey: source.storageKey, mimeType: source.mimeType, fileName: visibleSourceColumns(db, viewer).fileName })
+    .from(source)
+    .where(and(eq(source.id, sourceId), sourceVisibility(db, viewer).original));
+  return row?.storageKey ? { ...row, storageKey: row.storageKey } : undefined;
 }
 
 /** How many originals wait for deletion, for the admin page. */

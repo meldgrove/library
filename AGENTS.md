@@ -35,10 +35,10 @@ API (`@anthropic-ai/sdk`) or any OpenAI-compatible chat completions API.
   `pipeline.ts` (the worker's steps), `extract.ts`, `fetch-link.ts`,
   `screen.ts`, `identify.ts`, `draft.ts` (AI model and answer checks),
   `notes.ts` (reading), `review.ts` (publish, edit, check, delete),
-  `access.ts` (who sees a note), `taxonomy.ts`, `notify.ts`, `replay.ts`,
-  `slack-intake.ts` (the Slack bot), `email-intake.ts` (the intake mailbox),
-  `digest.ts` (weekly digests), `subscriptions.ts` (tags people follow),
-  `constants.ts` (closed lists and limits).
+  `access.ts` (who sees a note and its source), `taxonomy.ts`, `notify.ts`,
+  `replay.ts`, `slack-intake.ts` (the Slack bot), `email-intake.ts` (the
+  intake mailbox), `digest.ts` (weekly digests), `subscriptions.ts` (tags
+  people follow), `constants.ts` (closed lists and limits).
 - `src/lib/webhook/`: the signed webhook. `payload.ts` (what is sent),
   `client.ts` (signing and posting), `sync.ts` (which notes are due).
 - `src/lib/<module>/`: `auth`, `directory` (manual and Keycloak directory),
@@ -70,7 +70,9 @@ API (`@anthropic-ai/sdk`) or any OpenAI-compatible chat completions API.
   (`src/lib/slack/signature.ts`).
 - Who sees a note is decided only in `src/lib/library/access.ts`:
   `canSeeNote` for pages, `visibleNotes` for SQL. A test checks they agree.
-  Pages answer 404 for notes a person may not see.
+  Pages answer 404 for notes a person may not see. The same goes for a
+  source's original, saved link, title, and file name: `canSeeSource`, and
+  `sourceVisibility` or `visibleSourceColumns` for SQL.
 - Uploads enter only through `submitFile` and `submitLink`
   (`submissions.ts`), whatever the channel. The original is stored before its
   database row. Only the worker processes submissions (`pipeline.ts`): text,

@@ -8,7 +8,7 @@ import { errorMessage, logger } from "@/lib/logger";
 import { consumeRateLimit, RateLimitError } from "@/lib/rate-limit";
 import { originalKey, type Storage } from "@/lib/storage";
 import { DUPLICATE_SUBMISSION_REASON, noteRef, notePath, type ScreenFinding, type SubmissionStatus } from "./constants";
-import { creatingSubmitterOfSource } from "./access";
+import { creatingSubmitterOfSource, noteMayShowFileName } from "./access";
 import { draftNote, DraftError, DraftProviderError, type DraftModel, type NoteDraft } from "./draft";
 import { ACCEPTED_TYPES, detectFileType, extractText, ExtractionError, fromHtml, tidyText, type Extracted, type OcrOptions } from "./extract";
 import { fetchLink, LinkError } from "./fetch-link";
@@ -454,7 +454,8 @@ export async function processNext(deps: PipelineDeps, now: Date = new Date()): P
       draft = await draftNote(deps.model, {
         text,
         detectedTitle: row?.detectedTitle ?? undefined,
-        fileName: sourceForDraft?.creatorId === claimed.submitterId ? row?.fileName ?? undefined : undefined,
+        // The note will be the submitter's.
+        fileName: noteMayShowFileName({ ownerId: claimed.submitterId }, sourceForDraft?.creatorId ?? null) ? row?.fileName ?? undefined : undefined,
         url: row?.url ?? undefined,
         reason: claimed.reason,
         ...lists,

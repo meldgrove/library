@@ -39,6 +39,19 @@ leaves loses access, and their name stays on their notes.
 | Published, "My team" | The owner's team, the owner, maintainers, and admins |
 | Published, "Only me" | The owner only. Never sent to the webhook or a digest |
 
+## Who sees a source
+
+A source is the file or link behind a note. Uploading a file or link the
+library already has grants no access to it: what someone else added stays
+theirs.
+
+| Of the source | Who sees it |
+|---|---|
+| The original file | Everyone who sees the note. Before there is a note: the first uploader, maintainers, and admins |
+| The saved link | On the note page: everyone who sees the note. In someone's uploads: the first uploader, and on an upload that became or was linked to the note, everyone who sees it. In the maintenance queue: maintainers and admins, wherever they may get the original, and for a link they added first |
+| The detected title | In someone's uploads, as for the saved link |
+| The file name | The first uploader, and everyone who may get the original, unless the note belongs to someone other than the first uploader |
+
 ## OpenID Connect login
 
 Register the library as a confidential client (authorization code flow with
