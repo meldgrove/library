@@ -10,6 +10,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { getFormatter, requireAdmin } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
+import type { NotificationChannel } from "@/lib/db/schema";
 import { getDirectory } from "@/lib/directory/directory";
 import { getDirectoryStatus } from "@/lib/directory/queries";
 import { notePath } from "@/lib/library/constants";
@@ -23,7 +24,12 @@ import { SyncNowForm } from "./sync-now-form";
 
 export const metadata: Metadata = { title: "Admin" };
 
-const CHANNEL_LABELS = { slack: "Slack direct messages", slack_channel: "Slack channel posts", email: "Email", email_address: "Email to a list" } as const;
+const CHANNEL_LABELS = {
+  slack: "Slack direct messages",
+  slack_channel: "Slack channel posts",
+  email: "Email",
+  email_address: "Email to a list",
+} satisfies Record<NotificationChannel, string>;
 
 export default async function AdminPage() {
   await requireAdmin();
@@ -181,7 +187,7 @@ export default async function AdminPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(["slack", "slack_channel", "email"] as const).map((channel) => {
+              {(Object.keys(CHANNEL_LABELS) as NotificationChannel[]).map((channel) => {
                 const totals = notifications.lastWeek[channel];
                 return (
                   <TableRow key={channel}>
@@ -216,7 +222,7 @@ export default async function AdminPage() {
                     <TableRow key={row.id}>
                       <TableCell>{fmt.dateTime(row.createdAt)}</TableCell>
                       <TableCell>{CHANNEL_LABELS[row.channel]}</TableCell>
-                      <TableCell>{row.recipientName ?? "Slack channel"}</TableCell>
+                      <TableCell>{row.recipientName ?? row.address ?? "Slack channel"}</TableCell>
                       <TableCell>
                         <Link className="underline underline-offset-2" href={row.noteNumber ? notePath(row.noteNumber) : "/"}>
                           {row.subject}

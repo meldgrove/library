@@ -176,8 +176,9 @@ admin page shows the worker's last heartbeat.
   audit log keeps only its number.
 - **Logs** are JSON lines on stdout. The `service` field names the process.
 - **Admin page** (`/admin`): worker heartbeat, uploads waiting and on hold,
-  directory sync status, notification channels and failures, webhook
-  deliveries, and updates (installed version and channel).
+  directory sync status, notification channels, last week's messages per
+  channel (Slack, email, Slack channel posts, list mail) and failures,
+  webhook deliveries, and updates (installed version and channel).
 - **Upgrades**: read the release notes of every release since yours and
   take their steps. Back up the database first: migrations only move
   forward. `migrate` applies new migrations before `web` and `worker` start.
