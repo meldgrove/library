@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { NoteHeader } from "@/components/library/note-header";
 import { NoteReview } from "@/components/library/note-review";
-import { PageHeader } from "@/components/page-header";
 import { requireUser } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { canEditNote, canSeeNote, viewerOf } from "@/lib/library/access";
-import { noteRef, parseNoteNumber } from "@/lib/library/constants";
+import { parseNoteNumber } from "@/lib/library/constants";
 import { getNoteByNumber, reviewOptions } from "@/lib/library/notes";
 import { saveNoteAction } from "../actions";
 
@@ -21,7 +21,7 @@ export default async function EditNotePage({ params }: PageProps<"/n/[number]/ed
   if (!detail || !canSeeNote(viewer, detail.note) || !canEditNote(viewer, detail.note) || detail.note.status !== "published") notFound();
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={`Edit ${detail.note.title}`} eyebrow={<span className="text-sm text-muted-foreground">{noteRef(detail.note.number)}</span>} />
+      <NoteHeader number={detail.note.number} title={`Edit ${detail.note.title}`} />
       <NoteReview detail={detail} options={await reviewOptions(db, detail)} saveAction={saveNoteAction.bind(null, detail.note.id)} />
     </div>
   );
