@@ -1,48 +1,57 @@
 /*
  * The app's navigation: the sidebar items and the breadcrumb of each page.
- * Pure functions of the path, so the client components only render them.
+ * Pure data and functions of the path; `LibraryFrame` hands them to the
+ * frame of `@meldgrove/ui`, which marks the current item.
  */
 
-/** Shown above the other items, as the main action. */
-export const UPLOAD = { key: "upload", href: "/upload", label: "Add to library" } as const;
+export type NavKey = "library" | "review" | "uploads" | "maintenance" | "taxonomy" | "admin" | "people" | "teams";
 
-export const MAIN_NAV = [
-  { key: "library", href: "/", label: "Library" },
-  { key: "review", href: "/review", label: "My review" },
-  { key: "uploads", href: "/uploads", label: "My uploads" },
-] as const;
+export interface NavLink {
+  key: NavKey;
+  href: string;
+  label: string;
+  /** "G then this letter" opens the page: main pages only, each letter once; "o" is the start page. */
+  shortcut?: string;
+  /** More paths whose pages belong to this item, with their sub-pages. */
+  match?: string[];
+}
 
-/** For maintainers (and admins): looking after the content. */
-export const MAINTENANCE_NAV = [
-  { key: "maintenance", href: "/maintenance", label: "Maintenance" },
+export interface NavSection {
+  label?: string;
+  items: NavLink[];
+}
+
+/**
+ * The main pages. Notes (/n/…) and "Add to library" (/upload) belong to the
+ * library; "Add to library" itself is a button in the headers of the library
+ * and of My uploads.
+ */
+export const MAIN_NAV: NavLink[] = [
+  { key: "library", href: "/", label: "Library", shortcut: "o", match: ["/n", "/upload"] },
+  { key: "review", href: "/review", label: "My review", shortcut: "r" },
+  { key: "uploads", href: "/uploads", label: "My uploads", shortcut: "u" },
+];
+
+/** For maintainers (and admins): looking after the content. Maintenance is their main page. */
+export const MAINTENANCE_NAV: NavLink[] = [
+  { key: "maintenance", href: "/maintenance", label: "Maintenance", shortcut: "m" },
   { key: "taxonomy", href: "/maintenance/taxonomy", label: "Taxonomy" },
-] as const;
+];
 
 /** For admins: running the app. */
-export const ADMIN_NAV = [
+export const ADMIN_NAV: NavLink[] = [
   { key: "admin", href: "/admin", label: "Admin" },
   { key: "people", href: "/admin/people", label: "People" },
   { key: "teams", href: "/admin/teams", label: "Teams" },
-] as const;
+];
 
-export type NavKey =
-  | typeof UPLOAD.key
-  | (typeof MAIN_NAV)[number]["key"]
-  | (typeof MAINTENANCE_NAV)[number]["key"]
-  | (typeof ADMIN_NAV)[number]["key"];
-
-/** The sidebar item a page belongs to. Note pages belong to the library. */
-export function activeNavKey(pathname: string): NavKey | undefined {
-  if (pathname === "/" || pathname.startsWith("/n/")) return "library";
-  if (pathname === "/upload") return "upload";
-  if (pathname === "/uploads" || pathname.startsWith("/uploads/")) return "uploads";
-  if (pathname === "/review") return "review";
-  if (pathname === "/maintenance") return "maintenance";
-  if (pathname === "/maintenance/taxonomy") return "taxonomy";
-  if (pathname === "/admin") return "admin";
-  if (pathname === "/admin/people") return "people";
-  if (pathname === "/admin/teams") return "teams";
-  return undefined;
+/** The sidebar of a person: the main pages, then Maintenance for maintainers and Administration for admins. */
+export function navSections({ canMaintain, canAdminister }: { canMaintain: boolean; canAdminister: boolean }): NavSection[] {
+  return [
+    { items: MAIN_NAV },
+    ...(canMaintain ? [{ label: "Maintenance", items: MAINTENANCE_NAV }] : []),
+    ...(canAdminister ? [{ label: "Administration", items: ADMIN_NAV }] : []),
+  ];
 }
 
 export interface Crumb {
@@ -51,6 +60,7 @@ export interface Crumb {
   href?: string;
 }
 
+const LIBRARY: Crumb = { label: "Library", href: "/" };
 const MAINTENANCE_PAGES: Record<string, string> = { taxonomy: "Taxonomy" };
 const ADMIN_PAGES: Record<string, string> = { people: "People", teams: "Teams" };
 
@@ -59,7 +69,7 @@ function noteCrumb(segment: string): string {
   return /^\d+$/.test(segment) ? `LIB-${segment}` : segment;
 }
 
-/** The breadcrumb shown in the header, from the section to the current page. */
+/** The breadcrumb shown in the header, from the sidebar section to the current page (at most three steps). */
 export function breadcrumbsFor(pathname: string): Crumb[] {
   const segments = pathname.split("/").filter(Boolean);
   const [section, child] = segments;
@@ -67,7 +77,7 @@ export function breadcrumbsFor(pathname: string): Crumb[] {
     case undefined:
       return [{ label: "Library" }];
     case "upload":
-      return [{ label: "Add to library" }];
+      return [LIBRARY, { label: "Add to library" }];
     case "uploads":
       return [{ label: "My uploads" }];
     case "review":
@@ -77,10 +87,10 @@ export function breadcrumbsFor(pathname: string): Crumb[] {
       return page ? [{ label: "Maintenance", href: "/maintenance" }, { label: page }] : [{ label: "Maintenance" }];
     }
     case "n": {
-      if (!child) return [{ label: "Library" }];
+      if (!child) return [LIBRARY];
       return segments[2] === "edit"
-        ? [{ label: "Library", href: "/" }, { label: noteCrumb(child), href: `/n/${child}` }, { label: "Edit" }]
-        : [{ label: "Library", href: "/" }, { label: noteCrumb(child) }];
+        ? [LIBRARY, { label: noteCrumb(child), href: `/n/${child}` }, { label: "Edit" }]
+        : [LIBRARY, { label: noteCrumb(child) }];
     }
     case "admin": {
       const page = child ? ADMIN_PAGES[child] : undefined;

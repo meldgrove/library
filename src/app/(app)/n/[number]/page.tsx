@@ -5,14 +5,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionButton } from "@/components/admin/directory-forms";
 import { DeleteNoteForm } from "@/components/library/delete-note-form";
+import { NoteHeader } from "@/components/library/note-header";
 import { NoteReview } from "@/components/library/note-review";
 import { NoteView } from "@/components/library/note-view";
-import { PageHeader } from "@/components/page-header";
 import { canMaintain } from "@/lib/auth/roles";
 import { getFormatter, requireUser } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { canEditNote, canSeeNote, viewerOf } from "@/lib/library/access";
-import { noteRef, parseNoteNumber } from "@/lib/library/constants";
+import { parseNoteNumber } from "@/lib/library/constants";
 import { getNoteByNumber, reviewOptions } from "@/lib/library/notes";
 import { checkNoteAction, deleteNoteAction, discardNoteAction, saveNoteAction } from "./actions";
 
@@ -29,12 +29,11 @@ export default async function NotePage({ params }: PageProps<"/n/[number]">) {
   if (!detail || !canSeeNote(viewer, detail.note)) notFound();
   const { note } = detail;
   const editable = canEditNote(viewer, note);
-  const header = <PageHeader title={note.title} eyebrow={<span className="text-sm text-muted-foreground">{noteRef(note.number)}</span>} />;
 
   if (note.status === "draft" && editable) {
     return (
       <div className="flex flex-col gap-6">
-        {header}
+        <NoteHeader number={note.number} title={note.title} />
         <NoteReview
           detail={detail}
           options={await reviewOptions(db, detail)}
@@ -48,9 +47,9 @@ export default async function NotePage({ params }: PageProps<"/n/[number]">) {
   const fmt = await getFormatter();
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader
+      <NoteHeader
+        number={note.number}
         title={note.title}
-        eyebrow={<span className="text-sm text-muted-foreground">{noteRef(note.number)}</span>}
         actions={
           editable && note.status === "published" ? (
             <Button asChild variant="outline">

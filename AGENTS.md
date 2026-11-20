@@ -29,8 +29,12 @@ API (`@anthropic-ai/sdk`) or any OpenAI-compatible chat completions API.
   toaster (root layout), and the update button with the Updates card
   (`@meldgrove/ui/updates`; the provider in `src/app/(app)/layout.tsx`
   connects them to `/api/admin/updates`). Change or add components in the
-  package, not here. `src/components/library/`: the library's own
-  components.
+  package, not here. The frame (sidebar, search, header, breadcrumbs, user
+  menu, keys) is `AppFrame` from `@meldgrove/ui/app-frame` in
+  `src/components/library-frame.tsx`; its items and breadcrumbs come from
+  `src/lib/navigation.ts`, its note search from `src/lib/library/search.ts`.
+  Pages use `Page` and `PageHeader` from `@meldgrove/ui/page`.
+  `src/components/library/`: the library's own components.
 - `src/lib/library/`: the domain. `submissions.ts` (every way in),
   `pipeline.ts` (the worker's steps), `extract.ts`, `fetch-link.ts`,
   `screen.ts`, `identify.ts`, `draft.ts` (AI model and answer checks),

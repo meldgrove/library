@@ -11,7 +11,7 @@ test("a member of the access group signs in and sees the library", async ({ page
 
   await expect(page).toHaveURL(/localhost:3000\/$/);
   await expect(page.getByRole("heading", { name: "Library", level: 1 })).toBeVisible();
-  await expect(page.getByTestId("current-user")).toHaveText("Erika Employee");
+  await expect(page.getByRole("button", { name: "Account of Erika Employee" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Admin" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Maintenance" })).toHaveCount(0);
   await expectAccessible(page);
@@ -104,7 +104,7 @@ test("signing out also ends the identity provider's session", async ({ page }) =
   await expect(page.getByRole("heading", { name: "Library", level: 1 })).toBeVisible();
 
   // Sign out sits in the account menu at the bottom of the sidebar.
-  await page.getByTestId("current-user").click();
+  await page.getByRole("button", { name: "Account of Erika Employee" }).click();
   await page.getByRole("menuitem", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/login$/);
 
