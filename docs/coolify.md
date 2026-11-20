@@ -45,6 +45,13 @@ Back up the database first: migrations only move forward. Then set
 variables and redeploy. Coolify reads `compose.coolify.yaml` from `stable`,
 which is at the newest release.
 
+## Backups
+
+For [Meldgrove Backups](deployment.md#backups), set `BACKUP_URL` and
+`BACKUP_TOKEN` (from the app's source in Backups) in the resource's
+environment variables and redeploy. Each deploy pulls the backup agent's
+image.
+
 ## Automatic updates
 
 1. Under Settings > Advanced, turn on API Access if it is off.
