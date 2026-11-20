@@ -90,6 +90,9 @@ line on why (`src/lib/library/slack-intake.ts`).
 
 Slack errors are retried after 1, 5, 15, and 60 minutes; a permanent error (a
 missing scope, a bad token) stops at once and shows in `slack_event.last_error`.
+The bot and the notifications tell the two apart by one rule
+(`src/lib/slack/errors.ts`): timeouts, rate limits, Slack's server errors, and
+answers without an error code may pass.
 
 ## Email intake
 
