@@ -22,6 +22,19 @@ test("an upload needs a reason and the confirmation of the rules", async ({ page
   await expect(page.getByText("Confirm that the upload follows the rules.")).toBeVisible();
 });
 
+test("a refused file shows why once", async ({ page }) => {
+  await signIn(page, "erika");
+  await page.goto("/upload");
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d]);
+  await page.getByLabel("File", { exact: true }).setInputFiles({ name: "heat-map.png", mimeType: "image/png", buffer: png });
+  await page.getByLabel("Why is it useful?").fill("A photo of the heat map");
+  await page.getByRole("checkbox", { name: "I confirm that this upload follows the rules above." }).check();
+  await page.getByRole("button", { name: "Add to library" }).click();
+  const refusal = page.getByText("The library takes PDF, Word, Web page, Text files.");
+  await expect(refusal.first()).toBeVisible();
+  await expect(refusal).toHaveCount(1);
+});
+
 test("a PDF becomes a draft note the uploader can open", async ({ page }) => {
   await signIn(page, "erika");
   await page.goto("/upload");

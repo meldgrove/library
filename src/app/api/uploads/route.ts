@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentPerson } from "@/lib/auth/session";
-import { CommandError } from "@/lib/commands";
+import { CommandError, refusalOf } from "@/lib/commands";
 import { getAuthConfig, getUploadConfig } from "@/lib/config";
 import { getDb } from "@/lib/db/client";
 import { NOTE_LIMITS } from "@/lib/library/constants";
@@ -78,7 +78,8 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ submissionId: result.submissionId }, { status: 201 });
   } catch (error) {
-    if (error instanceof CommandError) return errorResponse(400, { formError: error.message, fieldErrors: error.fieldErrors });
+    // The message, or the field errors that repeat it, as handleFormAction returns them.
+    if (error instanceof CommandError) return errorResponse(400, refusalOf(error));
     if (error instanceof RateLimitError) return errorResponse(429, { formError: error.message });
     throw error;
   }
