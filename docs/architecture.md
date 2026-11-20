@@ -42,9 +42,10 @@ The worker (`src/lib/library/pipeline.ts`) takes each upload through fixed
 steps. Only the draft uses the AI model.
 
 1. **Received.** The web process stores the original (files) or the link.
-2. **Text.** PDF (pages marked `[Page N]`), Word, web page (reader view), or
-   text; OCR for scans when `OCR_COMMAND` is set. Links are downloaded with
-   every address checked against private networks.
+2. **Text** (`extract.ts`). PDF (pages marked `[Page N]`), Word, web page
+   (reader view), or text; OCR for scans when `OCR_COMMAND` is set. Links are
+   downloaded with every address checked against private networks, and what
+   they lead to is read like an uploaded file, title included.
 3. **Screen** (`screen.ts`): hidden instructions for AI models, credentials,
    and lists of prohibited data (bank details, payment cards, contact lists,
    personnel documents). A finding quarantines the upload until a maintainer
