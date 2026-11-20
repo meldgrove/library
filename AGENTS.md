@@ -44,8 +44,9 @@ API (`@anthropic-ai/sdk`) or any OpenAI-compatible chat completions API.
 - `src/lib/<module>/`: `auth`, `directory` (manual and Keycloak directory),
   `db`, `storage`, `audit`, `health`, `jobs` (queues and schedules),
   `security`, `notifications`, `slack` (signature check, the bot's Slack
-  client), `email` (IMAP), `updates` (the updater's API behind the admins'
-  update button, `src/app/api/admin/updates`).
+  client, which Slack errors are permanent for the bot and the
+  notifications alike), `email` (IMAP), `updates` (the updater's API behind
+  the admins' update button, `src/app/api/admin/updates`).
 - `src/workers/`: the pg-boss worker. `src/scripts/`: migrate, directory
   sync, taxonomy import, replay. Both are bundled with esbuild into `dist/`
   (`scripts/build-scripts.mjs`).

@@ -3,7 +3,7 @@ import path from "node:path";
 import { getAiConfig, getDatabaseConfig, getOcrConfig, getUploadConfig } from "@/lib/config";
 import { getDb, getPool } from "@/lib/db/client";
 import { createDraftModel, draftNote } from "@/lib/library/draft";
-import { detectFileType, extractText, fromHtml } from "@/lib/library/extract";
+import { detectFileType, extractText } from "@/lib/library/extract";
 import { fetchLink } from "@/lib/library/fetch-link";
 import { replaySetSchema, scoreItem, summarize, type ItemScore } from "@/lib/library/replay";
 import { draftLists } from "@/lib/library/taxonomy";
@@ -42,7 +42,7 @@ async function main() {
         const fetched = await fetchLink(item.url!, { maxBytes });
         const type = detectFileType(fetched.bytes, new URL(fetched.url).pathname, fetched.contentType);
         if (!type) throw new Error("unknown file type");
-        text = type === "html" ? fromHtml(new TextDecoder().decode(fetched.bytes)).text : (await extractText(fetched.bytes, type, ocr)).text;
+        text = (await extractText(fetched.bytes, type, ocr)).text;
       }
       const draft = await draftNote(model, { text, reason: item.reason, ...lists });
       const score = scoreItem(item.expected, draft);

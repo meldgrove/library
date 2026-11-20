@@ -1,4 +1,5 @@
 import { fetchLink, LinkError } from "@/lib/library/fetch-link";
+import { isPermanentSlackError, isPermanentSlackStatus } from "./errors";
 
 /*
  * What the worker asks Slack while it handles a message to the bot: the
@@ -34,8 +35,6 @@ export interface SlackIntakeClient {
 /** Slack's file server; the bot token goes nowhere else. */
 export const SLACK_FILE_HOST = "files.slack.com";
 
-/** Slack errors that may pass. Every other one is permanent. */
-const TEMPORARY = new Set(["ratelimited", "rate_limited", "internal_error", "fatal_error", "service_unavailable", "request_timeout"]);
 /** Errors that mean there is no such (usable) user. */
 const NO_USER = new Set(["user_not_found", "user_not_visible", "account_inactive"]);
 
@@ -62,12 +61,12 @@ export function createSlackIntakeClient(
         throw new SlackApiError(`Slack users.info: ${error instanceof Error ? error.message : String(error)}`);
       }
       if (!response.ok) {
-        throw new SlackApiError(`Slack users.info: HTTP ${response.status}`, { permanent: response.status !== 429 && response.status < 500 });
+        throw new SlackApiError(`Slack users.info: HTTP ${response.status}`, { permanent: isPermanentSlackStatus(response.status) });
       }
       const result = (await response.json()) as UsersInfoResponse;
       if (!result.ok) {
         if (result.error && NO_USER.has(result.error)) return null;
-        throw new SlackApiError(`Slack users.info: ${result.error ?? "unknown error"}`, { permanent: !result.error || !TEMPORARY.has(result.error) });
+        throw new SlackApiError(`Slack users.info: ${result.error ?? "unknown error"}`, { permanent: isPermanentSlackError(result.error) });
       }
       if (!result.user || result.user.deleted || result.user.is_bot) return null;
       // An address the person has not confirmed in Slack proves nothing.

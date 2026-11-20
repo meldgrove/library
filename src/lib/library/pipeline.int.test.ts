@@ -50,6 +50,12 @@ beforeAll(async () => {
       response.writeHead(200, { "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }).end(Buffer.from(docx));
     } else if (request.url === "/paper.pdf" || request.url === "/paper-copy.pdf") {
       response.writeHead(200, { "content-type": "application/pdf" }).end(Buffer.from(pdf));
+    } else if (request.url === "/notes.txt") {
+      response.writeHead(200, { "content-type": "text/plain" }).end(`# Heat plans for cities\n\n${studyText}`);
+    } else if (request.url === "/hitze") {
+      // A page in Windows-1252, as older sites still send them.
+      const page = `<html><head><title>Hitze in Städten</title></head><body><article><h1>Hitze in Städten</h1><p>${"Straßen und Plätze werden heißer. ".repeat(10)}</p></article></body></html>`;
+      response.writeHead(200, { "content-type": "text/html" }).end(Buffer.from(page, "latin1"));
     } else {
       response
         .writeHead(200, { "content-type": "text/html" })
@@ -186,6 +192,21 @@ describe("pipeline", () => {
     expect(src).toMatchObject({ kind: "link", storageKey: null, extractionMethod: "html", normalizedUrl: `https://127.0.0.1:${new URL(base).port}/heat` });
     expect((await db.select().from(sourceText).where(eq(sourceText.sourceId, sourceId)))[0]!.text).toContain("A study of urban heat.");
     expect((await statusOf(submissionId)).status).toBe("drafted");
+  });
+
+  it("reads a text file behind a link as an uploaded one, with its title", async () => {
+    const { sourceId } = await submitLink(db, { submitterId: seed.people.ada.id, channel: "web", reason: "Heat", url: `${base}/notes.txt` });
+    expect(await processNext(deps())).toBe("drafted");
+    const [src] = await db.select().from(source).where(eq(source.id, sourceId));
+    expect(src).toMatchObject({ kind: "link", storageKey: null, extractionMethod: "text", detectedTitle: "Heat plans for cities" });
+  });
+
+  it("reads a web page behind a link in Windows-1252 as an uploaded one", async () => {
+    const { sourceId } = await submitLink(db, { submitterId: seed.people.ada.id, channel: "web", reason: "Heat", url: `${base}/hitze` });
+    expect(await processNext(deps())).toBe("drafted");
+    const [src] = await db.select().from(source).where(eq(source.id, sourceId));
+    expect(src).toMatchObject({ extractionMethod: "html", detectedTitle: "Hitze in Städten" });
+    expect((await db.select().from(sourceText).where(eq(sourceText.sourceId, sourceId)))[0]!.text).toContain("Straßen und Plätze werden heißer.");
   });
 
   it("keeps a PDF behind a link, and finds it as a duplicate of the same uploaded file", async () => {

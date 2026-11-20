@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { logger } from "@/lib/logger";
+import { isPermanentSlackError, isPermanentSlackStatus } from "@/lib/slack/errors";
 import type { ChannelMode, NotificationChannels } from "./types";
 
 /*
@@ -79,14 +80,8 @@ interface SlackResponse {
   user?: { id: string; deleted?: boolean };
 }
 
-/** Slack errors that may pass. Every other one (a bad token, a missing scope, an unknown user) is permanent. */
-const SLACK_TEMPORARY = new Set(["ratelimited", "rate_limited", "internal_error", "fatal_error", "service_unavailable", "request_timeout"]);
-
 function slackError(method: string, error: string | undefined): DeliveryError {
-  return new DeliveryError(`Slack ${method}: ${error ?? "unknown error"}`, {
-    code: error,
-    permanent: error !== undefined && !SLACK_TEMPORARY.has(error),
-  });
+  return new DeliveryError(`Slack ${method}: ${error ?? "unknown error"}`, { code: error, permanent: isPermanentSlackError(error) });
 }
 
 export function createSlackTransport(token: string, fetchImpl: typeof fetch = fetch): SlackTransport {
@@ -105,7 +100,7 @@ export function createSlackTransport(token: string, fetchImpl: typeof fetch = fe
       throw new DeliveryError(`Slack ${method}: ${error instanceof Error ? error.message : String(error)}`);
     }
     if (response.status === 429) throw new DeliveryError(`Slack ${method}: rate limited`, { code: "ratelimited", retryAfterMs: retryAfterMs(response) });
-    if (!response.ok) throw new DeliveryError(`Slack ${method}: HTTP ${response.status}`, { permanent: !temporaryStatus(response.status) });
+    if (!response.ok) throw new DeliveryError(`Slack ${method}: HTTP ${response.status}`, { permanent: isPermanentSlackStatus(response.status) });
     return (await response.json()) as SlackResponse;
   }
 

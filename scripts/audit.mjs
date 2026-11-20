@@ -4,14 +4,8 @@
 // again. Moderate findings never fail CI (see .github/workflows/ci.yml).
 import { execFileSync } from "node:child_process";
 
-const EXCEPTIONS = [
-  {
-    id: "GHSA-fc5q-39xc-vjpf",
-    until: "2027-01-31",
-    reason:
-      "picomatch ReDoS through extglobs, with no patched release yet. The library never imports picomatch; Sentry's build plugin, vite, and vitest match only the project's own glob patterns with it.",
-  },
-];
+// Each one: { id: "GHSA-…", until: "YYYY-MM-DD", reason: "…" }.
+const EXCEPTIONS = [];
 
 const BLOCKING = new Set(["high", "critical"]);
 

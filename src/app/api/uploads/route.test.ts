@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { CommandError } from "@/lib/commands";
 import { consumeRateLimit, RateLimitError } from "@/lib/rate-limit";
 
 const mocks = vi.hoisted(() => ({ getCurrentPerson: vi.fn(), submitFile: vi.fn() }));
@@ -24,6 +25,17 @@ const upload = (init: { headers?: Record<string, string>; body?: BodyInit }) =>
       duplex: "half",
     } as RequestInit),
   );
+
+const uploadFile = async () => {
+  const form = new FormData();
+  form.set("kind", "file");
+  form.set("reason", "Numbers on heat");
+  form.set("confirmed", "on");
+  form.set("file", new File(["%PDF-1.7"], "study.pdf", { type: "application/pdf" }));
+  const body = new Response(form);
+  const bytes = new Uint8Array(await body.arrayBuffer());
+  return upload({ headers: { "content-type": body.headers.get("content-type")!, "content-length": String(bytes.byteLength) }, body: bytes });
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -68,15 +80,20 @@ describe("POST /api/uploads", () => {
 
   it("passes a file to the submissions module", async () => {
     mocks.submitFile.mockResolvedValue({ submissionId: "s1" });
-    const form = new FormData();
-    form.set("kind", "file");
-    form.set("reason", "Numbers on heat");
-    form.set("confirmed", "on");
-    form.set("file", new File(["%PDF-1.7"], "study.pdf", { type: "application/pdf" }));
-    const body = new Response(form);
-    const bytes = new Uint8Array(await body.arrayBuffer());
-    const response = await upload({ headers: { "content-type": body.headers.get("content-type")!, "content-length": String(bytes.byteLength) }, body: bytes });
+    const response = await uploadFile();
     expect(response.status).toBe(201);
     expect(mocks.submitFile).toHaveBeenCalledWith({}, {}, expect.objectContaining({ fileName: "study.pdf", reason: "Numbers on heat", channel: "web" }), 1_048_576);
+  });
+
+  it("returns a refused upload's message once: next to its field, or for the form", async () => {
+    mocks.submitFile.mockRejectedValueOnce(new CommandError("invalid", "The file is empty.", { file: "The file is empty." }));
+    let response = await uploadFile();
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ fieldErrors: { file: "The file is empty." } });
+
+    mocks.submitFile.mockRejectedValueOnce(new CommandError("forbidden", "Uploads are closed."));
+    response = await uploadFile();
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ formError: "Uploads are closed." });
   });
 });

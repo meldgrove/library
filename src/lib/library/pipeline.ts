@@ -10,7 +10,7 @@ import { originalKey, type Storage } from "@/lib/storage";
 import { DUPLICATE_SUBMISSION_REASON, noteRef, notePath, type ScreenFinding, type SubmissionStatus } from "./constants";
 import { creatingSubmitterOfSource, noteMayShowFileName } from "./access";
 import { draftNote, DraftError, DraftProviderError, type DraftModel, type NoteDraft } from "./draft";
-import { ACCEPTED_TYPES, detectFileType, extractText, ExtractionError, fromHtml, tidyText, type Extracted, type OcrOptions } from "./extract";
+import { ACCEPTED_TYPES, detectFileType, extractText, ExtractionError, type Extracted, type OcrOptions } from "./extract";
 import { fetchLink, LinkError } from "./fetch-link";
 import { findDoi, sha256Hex } from "./identify";
 import { notifyPerson, notifyMaintainers } from "./notify";
@@ -104,10 +104,8 @@ async function textOfLink(deps: PipelineDeps, row: SourceRow, claimed: Claimed):
     throw error;
   }
   const type = detectFileType(fetched.bytes, new URL(fetched.url).pathname, fetched.contentType);
-  if (type === "html") return { extracted: fromHtml(new TextDecoder().decode(fetched.bytes)), sourceId: row.id };
-  if (type === "text") {
-    return { extracted: { text: tidyText(new TextDecoder().decode(fetched.bytes)), method: "text" }, sourceId: row.id };
-  }
+  // A web page or a text file: only its text is kept, read as for uploads.
+  if (type === "html" || type === "text") return { extracted: await extractText(fetched.bytes, type, deps.ocr), sourceId: row.id };
   if (type !== "pdf" && type !== "docx") throw new Stop("parked", "The link leads to a file type the library cannot read.");
 
   // A file behind a link: store it once, as for uploads. Without storage,

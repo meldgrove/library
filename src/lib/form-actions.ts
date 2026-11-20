@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireUser, type CurrentUser } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
-import { CommandError, fieldErrorsOf, formDataToObject, type Actor } from "@/lib/commands";
+import { CommandError, fieldErrorsOf, formDataToObject, refusalOf, type Actor } from "@/lib/commands";
 import type { FormState } from "@/lib/form-state";
 import { consumeRateLimit, RateLimitError, WRITE_LIMIT } from "@/lib/rate-limit";
 
@@ -57,10 +57,7 @@ export async function handleFormAction<S extends z.ZodType>(
     await consumeRateLimit(getDb(), `write:${user.person.id}`, WRITE_LIMIT);
     path = await write(actorOf(user), parsed.data);
   } catch (error) {
-    if (error instanceof CommandError) {
-      const hasFieldErrors = Object.keys(error.fieldErrors).length > 0;
-      return { fieldErrors: error.fieldErrors, formError: hasFieldErrors ? undefined : error.message };
-    }
+    if (error instanceof CommandError) return refusalOf(error);
     if (error instanceof RateLimitError) return { formError: error.message };
     throw error;
   }

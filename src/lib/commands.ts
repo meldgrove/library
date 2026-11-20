@@ -13,7 +13,7 @@ export interface Actor {
 
 export type FieldErrors = Record<string, string>;
 
-/** A refused write. Form Server Actions show the message, or the field errors next to their fields. */
+/** A refused write. Forms show the message, or the field errors next to their fields (`refusalOf`). */
 export class CommandError extends Error {
   constructor(
     readonly code: "not_found" | "forbidden" | "invalid",
@@ -23,6 +23,15 @@ export class CommandError extends Error {
     super(message);
     this.name = "CommandError";
   }
+}
+
+/**
+ * What a form shows for a refused write: the field errors next to their
+ * fields, or else the message. Never both: a field error usually repeats the
+ * message, and the form would show it twice.
+ */
+export function refusalOf(error: CommandError): { fieldErrors: FieldErrors } | { formError: string } {
+  return Object.keys(error.fieldErrors).length > 0 ? { fieldErrors: error.fieldErrors } : { formError: error.message };
 }
 
 /**

@@ -1,6 +1,6 @@
 import { and, count, desc, eq, gte, isNotNull } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
-import { note, notificationDelivery, person, type DeliveryStatus, type NotificationChannel } from "@/lib/db/schema";
+import { note, NOTIFICATION_CHANNELS, notificationDelivery, person, type DeliveryStatus, type NotificationChannel } from "@/lib/db/schema";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -21,6 +21,7 @@ export async function getNotificationStatus(db: Database, now: Date = new Date()
         id: notificationDelivery.id,
         createdAt: notificationDelivery.createdAt,
         channel: notificationDelivery.channel,
+        channelId: notificationDelivery.channelId,
         event: notificationDelivery.event,
         subject: notificationDelivery.message,
         recipientName: person.displayName,
@@ -46,11 +47,15 @@ export async function getNotificationStatus(db: Database, now: Date = new Date()
     return byStatus;
   };
   return {
-    lastWeek: { slack: totals("slack"), email: totals("email"), slack_channel: totals("slack_channel") },
+    lastWeek: Object.fromEntries(NOTIFICATION_CHANNELS.map((channel) => [channel, totals(channel)])) as Record<NotificationChannel, Record<DeliveryStatus, number>>,
     /** Failed in the last 30 days. */
     failedTotal: failedTotal?.value ?? 0,
-    /** The latest 20 of them. */
-    failed: failed.map(({ subject, ...row }) => ({ ...row, subject: subject.subject })),
+    /** The latest 20 of them. `address` names a list address; a Slack channel's ID would mean nothing to people. */
+    failed: failed.map(({ subject, channelId, ...row }) => ({
+      ...row,
+      subject: subject.subject,
+      address: row.channel === "email_address" ? channelId : null,
+    })),
     withoutSlack,
   };
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { fetchLink } from "@/lib/library/fetch-link";
+import { createSlackTransport } from "@/lib/notifications/transports";
 import { createSlackIntakeClient, SlackApiError } from "./client";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -26,6 +27,14 @@ describe("Slack intake client", () => {
     await expect(answer(json({ ok: false, error: "ratelimited" }))).rejects.toMatchObject({ permanent: false });
     await expect(answer(new Response("", { status: 503 }))).rejects.toMatchObject({ permanent: false });
     await expect(answer(new Response("", { status: 429 }))).rejects.toBeInstanceOf(SlackApiError);
+  });
+
+  it.each([
+    ["HTTP 408", () => new Response("", { status: 408 })],
+    ["an answer without an error code", () => json({ ok: false })],
+  ])("retries %s, as the notification transport does", async (_, answer) => {
+    await expect(createSlackIntakeClient("xoxb-test", { fetchImpl: async () => answer() }).userEmail("U1")).rejects.toMatchObject({ permanent: false });
+    await expect(createSlackTransport("xoxb-test", async () => answer()).postMessage("U1", "Hello")).rejects.toMatchObject({ permanent: false });
   });
 
   it("downloads files only from Slack's file server, with the token", async () => {
