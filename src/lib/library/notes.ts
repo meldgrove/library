@@ -1,11 +1,12 @@
 import { and, asc, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { documentType, note, noteReason, noteTag, person, source, tag, tagCluster, team, topicArea } from "@/lib/db/schema";
-import { noteSourceFileName, visibleNotes, type Viewer } from "./access";
+import { visibleNotes, visibleSourceColumns, type Viewer } from "./access";
 
 /* Reading notes: one note with everything its page shows, and lists for browsing and search. */
 
-export async function getNoteByNumber(db: Database, number: number) {
+/** The note with this number. The caller checks `canSeeNote`; the source's file name is as the viewer may see it. */
+export async function getNoteByNumber(db: Database, number: number, viewer: Viewer) {
   const [row] = await db
     .select({
       note,
@@ -17,7 +18,7 @@ export async function getNoteByNumber(db: Database, number: number) {
         id: source.id,
         kind: source.kind,
         url: source.url,
-        fileName: noteSourceFileName(db),
+        fileName: visibleSourceColumns(db, viewer).fileName,
         mimeType: source.mimeType,
         sizeBytes: source.sizeBytes,
         storageKey: source.storageKey,

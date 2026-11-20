@@ -181,8 +181,9 @@ signature.
 
 ## Access
 
-`src/lib/library/access.ts` holds one rule, as a function for pages and as an
-SQL condition for lists and search; a test checks that both agree. See
+`src/lib/library/access.ts` holds the rules for who sees a note and what of
+its source, each as a function for pages and as SQL for lists and search;
+tests check that both agree. See
 [identity and access](identity-and-access.md#who-sees-a-note).
 
 ## Untrusted content

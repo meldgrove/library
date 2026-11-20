@@ -7,7 +7,7 @@ import { documentType, note, noteTag, noteVersion, notificationDelivery, person,
 import { errorMessage, logger } from "@/lib/logger";
 import { requestWebhookSync } from "@/lib/webhook/sync";
 import type { Storage } from "@/lib/storage";
-import { noteSourceFileName, canEditNote, visibleNotes, visibleTagProposals, type Viewer } from "./access";
+import { canEditNote, visibleNotes, visibleSourceColumns, visibleTagProposals, type Viewer } from "./access";
 import { NOTE_LIMITS, notePath, noteRef } from "./constants";
 import type { NoteFormInput } from "./note-input";
 import { noteSearchText, snapshotOf } from "./note-text";
@@ -350,7 +350,7 @@ export async function countMyDrafts(db: Database, personId: string): Promise<num
  * private drafts are their owners' alone: they are never escalated.
  */
 export async function maintenanceQueues(db: Database, viewer: Viewer, now: Date = new Date()) {
-  const showSource = or(isNull(note.id), visibleNotes(viewer));
+  const shown = visibleSourceColumns(db, viewer);
   const [onHold, overdue, unchecked, [proposals]] = await Promise.all([
     db
       .select({
@@ -361,15 +361,14 @@ export async function maintenanceQueues(db: Database, viewer: Viewer, now: Date 
         createdAt: submission.createdAt,
         reason: submission.reason,
         submitterName: person.displayName,
-        fileName: sql<string | null>`case when ${showSource} then ${noteSourceFileName(db)} end`,
-        url: sql<string | null>`case when ${showSource} then ${source.url} end`,
+        fileName: shown.fileName,
+        url: shown.reviewUrl,
         sourceId: source.id,
-        hasOriginal: sql<boolean>`(${showSource} and ${source.storageKey} is not null)`,
+        hasOriginal: shown.hasOriginal,
       })
       .from(submission)
       .innerJoin(person, eq(person.id, submission.submitterId))
       .innerJoin(source, eq(source.id, submission.sourceId))
-      .leftJoin(note, eq(note.sourceId, source.id))
       .where(inArray(submission.status, ["quarantined", "parked"]))
       .orderBy(asc(submission.statusChangedAt)),
     db

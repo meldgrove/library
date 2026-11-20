@@ -16,8 +16,8 @@ export default async function EditNotePage({ params }: PageProps<"/n/[number]/ed
   const number = parseNoteNumber((await params).number);
   if (number === undefined) notFound();
   const db = getDb();
-  const detail = await getNoteByNumber(db, number);
   const viewer = viewerOf(person);
+  const detail = await getNoteByNumber(db, number, viewer);
   if (!detail || !canSeeNote(viewer, detail.note) || !canEditNote(viewer, detail.note) || detail.note.status !== "published") notFound();
   return (
     <div className="flex flex-col gap-6">

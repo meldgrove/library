@@ -23,8 +23,8 @@ export default async function NotePage({ params }: PageProps<"/n/[number]">) {
   const number = parseNoteNumber((await params).number);
   if (number === undefined) notFound();
   const db = getDb();
-  const detail = await getNoteByNumber(db, number);
   const viewer = viewerOf(person);
+  const detail = await getNoteByNumber(db, number, viewer);
   // Notes the person may not see look like missing ones.
   if (!detail || !canSeeNote(viewer, detail.note)) notFound();
   const { note } = detail;
