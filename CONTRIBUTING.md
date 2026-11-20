@@ -73,12 +73,12 @@ notifications and the webhook are recorded. In short:
 
 ## Dependency updates
 
-Dependabot (`.github/dependabot.yml`) opens weekly pull requests for npm,
-GitHub Actions, the Docker base image, and the Compose images.
-`@meldgrove/ui` (the shared components, theme, and update button) comes in a
-pull request of its own as soon as it is released, without the week other
-packages wait. Two versions it cannot see; update them by hand in the same
-pull request:
+Dependabot (`.github/dependabot.yml`) opens pull requests for npm (checked
+daily), GitHub Actions, the Docker base image, and the Compose images
+(weekly). `@meldgrove/ui` (the shared components, theme, and update button)
+comes in a pull request of its own at the first daily check after its
+release, without the week other packages wait. Two versions it cannot see;
+update them by hand in the same pull request:
 
 - `NODE_VERSION` in `.github/workflows/ci.yml`, with the `node` image in the
   `Dockerfile`.
