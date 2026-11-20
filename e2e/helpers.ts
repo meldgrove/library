@@ -20,10 +20,6 @@ export async function expectAccessible(page: Page): Promise<void> {
   await expect(page).toHaveTitle(/Meldgrove Library$/);
   const results = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
-    // The frame's account button (@meldgrove/ui 0.1.2) is named "Account of <name>" but shows the
-    // initials, name, and email: label in name (WCAG 2.5.3). @meldgrove/ui 0.1.4 fixes it; remove
-    // this line once @meldgrove/ui 0.1.4 is installed.
-    .exclude('[data-sidebar="footer"] button[aria-haspopup="menu"]')
     .analyze();
   expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
