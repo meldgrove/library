@@ -1,4 +1,5 @@
-# Weekly version updates, one pull request per group. Security updates
+# Version updates, one pull request per group: npm at the root every weekday,
+# the rest weekly. Security updates
 # ignore the schedule and the cooldown. CONTRIBUTING.md lists the versions
 # Dependabot cannot update.
 version: 2
@@ -6,7 +7,7 @@ updates:
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: weekly
+      interval: daily
     # Let new releases settle before they are proposed; the shared Meldgrove
     # packages come at once, in a pull request of their own.
     cooldown:
