@@ -1,8 +1,13 @@
-import { and, count, desc, eq, gte, isNotNull } from "drizzle-orm";
+import { and, count, desc, eq, gte, isNotNull, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { note, NOTIFICATION_CHANNELS, notificationDelivery, person, type DeliveryStatus, type NotificationChannel } from "@/lib/db/schema";
+import type { LibraryEvent } from "@/lib/library/notify";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Events whose message is about one note and names it in the subject. */
+const NOTE_EVENTS = ["draft_ready", "review_reminder", "review_escalated"] as const satisfies readonly LibraryEvent[];
+export const HIDDEN_NOTE_SUBJECT = "A message about a private or deleted note";
 
 /** What the admin page shows about notifications. */
 export async function getNotificationStatus(db: Database, now: Date = new Date()) {
@@ -26,6 +31,9 @@ export async function getNotificationStatus(db: Database, now: Date = new Date()
         subject: notificationDelivery.message,
         recipientName: person.displayName,
         noteNumber: note.number,
+        // The subject of a message about one note names it. A private note is its
+        // owner's alone, and a deleted one is gone: both stay anonymous here.
+        noteHidden: sql<boolean>`(${notificationDelivery.event} in (${sql.join(NOTE_EVENTS.map((event) => sql`${event}`), sql`, `)}) and (${note.id} is null or ${note.visibility} = 'private'))`,
         lastError: notificationDelivery.lastError,
       })
       .from(notificationDelivery)
@@ -51,9 +59,10 @@ export async function getNotificationStatus(db: Database, now: Date = new Date()
     /** Failed in the last 30 days. */
     failedTotal: failedTotal?.value ?? 0,
     /** The latest 20 of them. `address` names a list address; a Slack channel's ID would mean nothing to people. */
-    failed: failed.map(({ subject, channelId, ...row }) => ({
+    failed: failed.map(({ subject, channelId, noteHidden, ...row }) => ({
       ...row,
-      subject: subject.subject,
+      noteNumber: noteHidden ? null : row.noteNumber,
+      subject: noteHidden ? HIDDEN_NOTE_SUBJECT : subject.subject,
       address: row.channel === "email_address" ? channelId : null,
     })),
     withoutSlack,
