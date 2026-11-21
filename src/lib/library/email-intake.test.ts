@@ -32,6 +32,25 @@ describe("checkAuthentication", () => {
     expect(checkAuthentication(["mx.example.net; dkim=fail header.d=example.org", "mx.example.net; dkim=pass header.d=example.org"], "example.org").ok).toBe(false);
   });
 
+  it("does not take a pass from inside a quoted string, such as a crafted envelope address", () => {
+    const local = "x; dkim=pass header.d=example.org y";
+    expect(checkAuthentication([`mx.example.net; spf=pass smtp.mailfrom="${local}"@mailer.example; dkim=none`], "example.org").ok).toBe(false);
+    // The address repeated in a comment: read as plain text, its bracket ends the comment early;
+    // read as a quoted string, a hidden bracket does. Neither reading is taken.
+    const closing = "x); dkim=pass header.d=example.org (";
+    expect(checkAuthentication([`mx.example.net; spf=pass (mx: domain of "${closing}"@mailer.example designates 192.0.2.1) smtp.mailfrom="${closing}"@mailer.example`], "example.org").ok).toBe(false);
+    expect(checkAuthentication([`mx.example.net; spf=neutral (mx: "(" ); dkim=pass header.d=example.org) smtp.mailfrom=mailer.example`], "example.org").ok).toBe(false);
+    expect(checkAuthentication([`mx.example.net; dkim=neutral (a (nested \\) comment; dkim=pass header.d=example.org) still) header.d=mailer.example`], "example.org").ok).toBe(false);
+    expect(checkAuthentication([`mx.example.net; dkim=pass "header.d=example.org"`], "example.org").ok).toBe(false);
+    expect(checkAuthentication([`mx.example.net; spf=pass smtp.mailfrom="a\\"; dkim=pass header.d=example.org"@mailer.example`], "example.org").ok).toBe(false);
+    // A quote or a comment that never ends: nothing is taken from the header.
+    expect(checkAuthentication([`mx.example.net; spf=pass smtp.mailfrom="x; dkim=pass header.d=example.org`], "example.org").ok).toBe(false);
+    expect(checkAuthentication([`mx.example.net; dkim=pass header.d=example.org (never closed`], "example.org").ok).toBe(false);
+    // Quoted values and quoted local parts of the right domain still count.
+    expect(checkAuthentication([`mx.example.net; dkim=pass (2048-bit key) header.d="example.org" header.b="AbC=dEf"`], "example.org").ok).toBe(true);
+    expect(checkAuthentication([`mx.example.net; spf=pass smtp.mailfrom="first last"@example.org`], "example.org").ok).toBe(true);
+  });
+
   it("does not take a pass from inside a comment", () => {
     expect(checkAuthentication(["mx.example.net; dkim=neutral (dkim=pass header.d=example.org) header.d=example.org"], "example.org").ok).toBe(false);
   });

@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { recordAudit } from "@/lib/audit";
 import { canMaintain } from "@/lib/auth/roles";
@@ -7,6 +7,7 @@ import type { Database, Transaction } from "@/lib/db/client";
 import { documentType, note, noteTag, tag, tagCluster, tagProposal, topicArea } from "@/lib/db/schema";
 import { visibleNotes, visibleTagProposals, type Viewer } from "./access";
 import type { ListEntry } from "./constants";
+import { noteSearchText } from "./note-text";
 
 /*
  * The closed lists the AI model picks from: tags (grouped in clusters),
@@ -242,15 +243,38 @@ export async function createTag(db: Database | Transaction, actor: Actor, input:
   return db.transaction(run);
 }
 
+/**
+ * Search finds a note by the names of its tags, which `search_text` keeps:
+ * written again when a note got a tag or a tag got another name.
+ */
+async function refreshSearchText(tx: Transaction, noteIds: string[]): Promise<void> {
+  if (noteIds.length === 0) return;
+  const notes = await tx
+    .select({ id: note.id, keyPoints: note.keyPoints, quotes: note.quotes, citation: note.citation })
+    .from(note)
+    .where(inArray(note.id, noteIds))
+    .orderBy(asc(note.id))
+    // A note saved meanwhile is read as saved; in ID order, like every lock on several notes.
+    .for("no key update");
+  for (const row of notes) {
+    const tags = await tx.select({ name: tag.name }).from(noteTag).innerJoin(tag, eq(tag.id, noteTag.tagId)).where(eq(noteTag.noteId, row.id)).orderBy(asc(tag.name));
+    await tx.update(note).set({ searchText: noteSearchText({ ...row, tagNames: tags.map((t) => t.name) }) }).where(eq(note.id, row.id));
+  }
+}
+
 export async function updateTag(db: Database, actor: Actor, tagId: string, input: TagInput): Promise<void> {
   requireMaintainer(actor);
   await db.transaction(async (tx) => {
-    const [current] = await tx.select().from(tag).where(eq(tag.id, tagId)).for("update");
+    // Not FOR UPDATE: a note being saved with this tag holds its own lock and
+    // waits for the tag's key, and the rename below waits for that note.
+    const [current] = await tx.select().from(tag).where(eq(tag.id, tagId)).for("no key update");
     if (!current) throw new CommandError("not_found", "This tag does not exist.");
     await assertUnique(tx, tag, input.name, tagId);
     await tx.update(tag).set({ name: input.name, description: input.description, clusterId: input.clusterId, updatedAt: new Date() }).where(eq(tag.id, tagId));
     if (current.name !== input.name) {
       await recordAudit(tx, { actorId: actor.personId, action: "tag.renamed", subjectType: "tag", subjectId: tagId, payload: { from: current.name, to: input.name } });
+      const tagged = await tx.select({ noteId: noteTag.noteId }).from(noteTag).where(eq(noteTag.tagId, tagId));
+      await refreshSearchText(tx, tagged.map((row) => row.noteId));
     }
   });
 }
@@ -365,6 +389,7 @@ export async function acceptTagProposal(
     for (const proposal of proposals) {
       if (proposal.noteId) await tx.insert(noteTag).values({ noteId: proposal.noteId, tagId }).onConflictDoNothing();
     }
+    await refreshSearchText(tx, proposals.flatMap((proposal) => (proposal.noteId ? [proposal.noteId] : [])));
     await recordAudit(tx, { actorId: actor.personId, action: "tag_proposal.accepted", subjectType: "tag_proposal", subjectId: proposalId, payload: { tagId } });
   });
 }
