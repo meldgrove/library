@@ -130,7 +130,10 @@ async function main() {
   // team's channel, and an email to everyone who follows tags.
   const digestConfig = getDigestConfig();
   await boss.createQueue(QUEUES.weeklyDigest, { retryLimit: 3, retryDelay: 300, expireInSeconds: 600 });
-  await boss.schedule(QUEUES.weeklyDigest, WEEKLY_DIGEST_CRON, {}, { tz: SERVER_TIME_ZONE });
+  // A worker that is down on Monday at 09:00 (a restart, an update) sends the
+  // digest when it is back: the next week's digest would not list these notes.
+  // A late or second run records nothing twice (one message per ISO week).
+  await boss.schedule(QUEUES.weeklyDigest, WEEKLY_DIGEST_CRON, {}, { tz: SERVER_TIME_ZONE, missed: "once" });
   await boss.work(QUEUES.weeklyDigest, async () => {
     const now = new Date();
     const result = await recordWeeklyDigests(getDb(), now, { slackChannelId: digestConfig.DIGEST_SLACK_CHANNEL_ID, emailTo: digestConfig.DIGEST_EMAIL_TO });
