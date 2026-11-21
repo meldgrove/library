@@ -11,25 +11,24 @@ import { NoteList } from "@/components/library/note-list";
 import { getFormatter, requireUser } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { viewerOf } from "@/lib/library/access";
+import { idParam, oneParam as one, pageParam } from "@/lib/library/list-params";
 import { filterOptions, listNotes } from "@/lib/library/notes";
 
 export const metadata: Metadata = { title: "Library" };
 
 const PAGE_SIZE = 25;
-const one = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value)?.trim() || undefined;
-const uuid = (value: string | undefined) => (value && /^[0-9a-f-]{36}$/i.test(value) ? value : undefined);
 
 export default async function LibraryPage({ searchParams }: PageProps<"/">) {
   // Layouts are not re-rendered on every navigation, so each page checks access.
   const { person } = await requireUser();
   const params = await searchParams;
-  const page = Math.max(1, Number(one(params.page)) || 1);
+  const page = pageParam(params.page);
   const filters = {
     q: one(params.q)?.slice(0, 200),
-    tagId: uuid(one(params.tag)),
-    documentTypeId: uuid(one(params.type)),
-    topicAreaId: uuid(one(params.topic)),
-    teamId: uuid(one(params.team)),
+    tagId: idParam(params.tag),
+    documentTypeId: idParam(params.type),
+    topicAreaId: idParam(params.topic),
+    teamId: idParam(params.team),
   };
   const db = getDb();
   const [fmt, { notes, total }, options] = await Promise.all([

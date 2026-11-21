@@ -4,6 +4,7 @@ import { auditEvent, documentType, note, noteTag, source, tag, tagCluster, tagPr
 import { connectTestDatabase } from "../../../tests/integration/db";
 import { seedDirectory } from "../../../tests/integration/seed";
 import { viewerOf } from "./access";
+import { listNotes } from "./notes";
 import { maintenanceQueues, recordReviewReminders } from "./review";
 import {
   acceptTagProposal,
@@ -22,6 +23,7 @@ import {
   setTopicAreaActive,
   taxonomyFileSchema,
   updateDocumentType,
+  updateTag,
   updateTopicArea,
 } from "./taxonomy";
 
@@ -92,6 +94,40 @@ it("can accept proposals while the reminder job updates the same notes", async (
   ]);
   expect(reminders).toEqual({ reminded: 1, escalated: 2 });
   expect(await db.select().from(noteTag)).toHaveLength(2);
+});
+
+it("finds a note by a tag it got from a proposal, and by the tag's new name", async () => {
+  const { seed, viewer, shared, visible } = await setup();
+  await db.update(note).set({ status: "published", publishedAt: new Date() }).where(eq(note.id, shared.id));
+  const found = async (q: string) => (await listNotes(db, viewer, { q })).notes.map(({ id }) => id);
+
+  await acceptTagProposal(db, seed.actors.amy, visible.id, { name: "Heat islands", clusterId: null, description: "" });
+  expect(await found("islands")).toEqual([shared.id]);
+
+  const [created] = await db.select().from(tag).where(eq(tag.name, "Heat islands"));
+  await updateTag(db, seed.actors.amy, created!.id, { name: "Urban warming", description: "", clusterId: null });
+  expect(await found("warming")).toEqual([shared.id]);
+  expect(await found("islands")).toEqual([]);
+});
+
+it("renames a tag while a note with it is being saved", async () => {
+  const { seed, shared, restricted } = await setup();
+  const budget = seed.tags.budget;
+  await db.insert(noteTag).values({ noteId: shared.id, tagId: budget.id });
+
+  let rename: Promise<void> | undefined;
+  await db.transaction(async (tx) => {
+    // A save: the note's lock first, then the tag's key for the new note_tag row.
+    await tx.select().from(note).where(eq(note.id, shared.id)).for("update");
+    rename = updateTag(db, seed.actors.amy, budget.id, { name: "Budgets", description: "", clusterId: null });
+    // Let the rename reach the locked note.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await tx.insert(noteTag).values({ noteId: restricted.id, tagId: budget.id });
+    await tx.update(note).set({ keyPoints: ["Saved meanwhile"] }).where(eq(note.id, shared.id));
+  });
+  await rename;
+  const [saved] = await db.select({ searchText: note.searchText }).from(note).where(eq(note.id, shared.id));
+  expect(saved?.searchText).toBe("Saved meanwhile\n\nBudgets");
 });
 
 describe("clusters", () => {

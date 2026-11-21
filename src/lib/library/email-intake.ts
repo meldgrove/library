@@ -47,6 +47,76 @@ export interface AuthenticationCheck {
   reason: string;
 }
 
+/** A word of an Authentication-Results header: `name=value`, or a bare word (then `name` is empty). */
+interface AuthenticationWord {
+  name: string;
+  value: string;
+}
+
+/**
+ * The results of an Authentication-Results header (the parts after each ";"),
+ * each as its words. Comments (in parentheses, nested) separate words like a
+ * space. A quoted string is always part of one value, wherever it stands: the
+ * sender chooses what is inside (the envelope address may be
+ * `"a; dkim=pass header.d=…"@their.example`), so nothing in it ends a word, a
+ * comment, or a result, or names a property. Null when a quote or a comment
+ * never ends, and for a quote inside a comment: mail servers repeat the
+ * envelope address there, and read as plain text or as a quoted string, its
+ * brackets would end the comment in different places.
+ */
+function authenticationResultsOf(header: string): AuthenticationWord[][] | null {
+  const text = header.replace(/\r?\n[ \t]+/g, " ");
+  const results: AuthenticationWord[][] = [[]];
+  let word: AuthenticationWord | null = null;
+  let named = false;
+  let quoted = false;
+  let depth = 0;
+  const add = (char: string, literal: boolean) => {
+    word ??= { name: "", value: "" };
+    if (char === "=" && !literal && !named) {
+      named = true;
+      word.name = word.value.toLowerCase();
+      word.value = "";
+    } else {
+      word.value += char;
+    }
+  };
+  const endWord = () => {
+    if (word) results.at(-1)!.push(word);
+    word = null;
+    named = false;
+  };
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]!;
+    if (quoted) {
+      if (char === '"') quoted = false;
+      else if (char === "\\") add(text[(index += 1)] ?? "", true);
+      else add(char, true);
+    } else if (depth > 0) {
+      if (char === '"') return null;
+      if (char === "\\") index += 1;
+      else if (char === "(") depth += 1;
+      else if (char === ")") depth -= 1;
+    } else if (char === '"') {
+      quoted = true;
+      add("", true);
+    } else if (char === "(") {
+      endWord();
+      depth = 1;
+    } else if (char === ";") {
+      endWord();
+      results.push([]);
+    } else if (/\s/.test(char)) {
+      endWord();
+    } else {
+      add(char, false);
+    }
+  }
+  if (quoted || depth > 0) return null;
+  endWord();
+  return results;
+}
+
 /**
  * Whether the receiving mail server confirmed the sender's domain: `dkim=pass`
  * with `header.d` (or `header.i`) of that domain, or `spf=pass` with
@@ -58,17 +128,14 @@ export function checkAuthentication(authenticationResults: readonly string[], fr
   const header = authenticationResults[0];
   if (!header) return { ok: false, reason: "no Authentication-Results header" };
   const domain = fromDomain.toLowerCase();
-  const [, ...results] = unfold(header).split(";");
-  for (const result of results) {
-    const tokens = result.trim().split(/\s+/).filter(Boolean);
-    const [method, outcome] = (tokens[0] ?? "").toLowerCase().split("=");
-    if (outcome !== "pass") continue;
-    const properties = new Map(
-      tokens.slice(1).flatMap((token) => {
-        const index = token.indexOf("=");
-        return index > 0 ? [[token.slice(0, index).toLowerCase(), token.slice(index + 1)] as const] : [];
-      }),
-    );
+  const parsed = authenticationResultsOf(header);
+  if (!parsed) return { ok: false, reason: "the Authentication-Results header could not be read" };
+  // The first part names the server that checked.
+  const [, ...results] = parsed;
+  for (const [first, ...rest] of results) {
+    if (!first || first.value.toLowerCase() !== "pass") continue;
+    const method = first.name;
+    const properties = new Map(rest.filter((word) => word.name).map((word) => [word.name, word.value] as const));
     if (method === "dkim") {
       const signer = properties.get("header.d") ?? properties.get("header.i");
       if (signer && domainOf(signer) === domain) return { ok: true, reason: "dkim" };
