@@ -123,6 +123,17 @@ describe("createKeycloakDirectoryAdapter", () => {
     await expect(adapterFor(fakeKeycloak({ groups, status: { "/group-by-path/": 403 } })).fetchSnapshot()).rejects.toThrow(/view-users/);
   });
 
+  it("names the missing kc-admin-api scope when the Admin API refuses a fresh token too", async () => {
+    // Keycloak 26.8.2 and later refuse tokens without the Admin API's audience.
+    const keycloak = fakeKeycloak({ groups, status: { "/group-by-path/": 401 } });
+    await expect(adapterFor(keycloak).fetchSnapshot()).rejects.toThrow(
+      "Keycloak refused the token (HTTP 401). Keycloak 26.8.2 and later: add the client scope kc-admin-api to client library as a Default scope.",
+    );
+    // One retry with a fresh token first.
+    expect(keycloak.calls.filter((c) => c.url.endsWith("/token"))).toHaveLength(2);
+    expect(keycloak.calls.filter((c) => c.url.includes("/group-by-path/"))).toHaveLength(2);
+  });
+
   it("reports a failed token request as a directory error", async () => {
     const keycloak = fakeKeycloak({ groups, status: { "/token": 401 } });
     await expect(adapterFor(keycloak).fetchSnapshot()).rejects.toBeInstanceOf(DirectoryError);

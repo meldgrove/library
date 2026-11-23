@@ -55,6 +55,7 @@
         "http://localhost:3000",
         "http://localhost:3001"
       ],
+      "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "basic", "email", "kc-admin-api"],
       "attributes": {
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "http://localhost:3000/##http://localhost:3001/"

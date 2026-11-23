@@ -5,7 +5,8 @@ import { DirectoryError, type DirectoryAdapter, type DirectoryPerson, type Direc
 /*
  * Reads people and teams from Keycloak groups through the Keycloak Admin API,
  * with a client-credentials token of a service account that has the
- * realm-management role `view-users`.
+ * realm-management role `view-users`. From Keycloak 26.8.2, the client also
+ * needs the client scope `kc-admin-api` as a default scope.
  *
  * - Members of the access group (and of its subgroups) have access.
  * - Members of the admin group (and of its subgroups) are admins, and have
@@ -105,6 +106,14 @@ export function createKeycloakDirectoryAdapter(options: KeycloakDirectoryOptions
       response = await request(url, await getToken());
     }
     if (response.status === 404) return null;
+    // Keycloak issued a token, but the Admin API refuses it: from 26.8.2 the
+    // token must carry the Admin API's audience, which the client scope
+    // kc-admin-api adds.
+    if (response.status === 401) {
+      throw new DirectoryError(
+        `Keycloak refused the token (HTTP 401). Keycloak 26.8.2 and later: add the client scope kc-admin-api to client ${options.clientId} as a Default scope.`,
+      );
+    }
     if (response.status === 403) {
       throw new DirectoryError("Keycloak refused the request (HTTP 403). The service account needs the realm-management role view-users.");
     }
