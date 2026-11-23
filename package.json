@@ -67,7 +67,7 @@
     "@types/react-dom": "^19.3.0",
     "drizzle-kit": "^0.31.11",
     "esbuild": "^0.28.2",
-    "eslint": "^10.14.0",
+    "eslint": "^10.15.0",
     "eslint-config-next": "^16.4.6",
     "sentry": "^0.49.0",
     "tailwindcss": "^4.3.4",
@@ -75,5 +75,13 @@
     "typescript": "^5.9.3",
     "vitest": "^5.1.0"
   },
-  "description": "Meldgrove Library: a shared reading library with AI-drafted, human-checked source notes"
+  "description": "Meldgrove Library: a shared reading library with AI-drafted, human-checked source notes",
+  "overrides": {
+    "@esbuild-kit/core-utils": {
+      "esbuild": "^0.28.2"
+    },
+    "@tailwindcss/typography": {
+      "postcss-selector-parser": "^6.1.5"
+    }
+  }
 }
