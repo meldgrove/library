@@ -60,7 +60,7 @@ leading slash and without a trailing one.
 | `KEYCLOAK_ADMIN_GROUP` | required | Group path, e.g. `/library-admins`. Its members are admins (and have access) |
 | `KEYCLOAK_MAINTAINER_GROUP` | none (no maintainers) | Group path, e.g. `/library-maintainers`. Its members are maintainers, who look after the content (and have access). Someone in both groups is an admin |
 | `KEYCLOAK_TEAMS_GROUP` | required | Group path, e.g. `/teams`. Each direct subgroup is a team; it needs at least one |
-| `KEYCLOAK_CLIENT_ID` | `OIDC_CLIENT_ID` | Client with a service account that may read users and groups |
+| `KEYCLOAK_CLIENT_ID` | `OIDC_CLIENT_ID` | Client with a service account that may read users and groups (role `view-users`; from Keycloak 26.8.2 also the default client scope `kc-admin-api`, see [identity and access](identity-and-access.md#keycloak-setup)) |
 | `KEYCLOAK_CLIENT_SECRET` | `OIDC_CLIENT_SECRET` | Its secret |
 
 `OIDC_ISSUER` must be the realm URL (`…/realms/<realm>`); the Admin API URL is

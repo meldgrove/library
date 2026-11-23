@@ -165,8 +165,12 @@ team. Someone who signs in before the next sync triggers a sync of their own
 2. Under the client's **Service account roles**, assign the role
    `view-users` of the client `realm-management`. It lets the sync read users
    and group members, nothing else.
-3. Create the groups and add people to them.
-4. Set:
+3. Keycloak 26.8.2 and later: under the client's **Client scopes**, add
+   `kc-admin-api` as a **Default** scope. The Admin API refuses tokens
+   without the audience it adds (HTTP 401), and the sync fails. Upgrading
+   Keycloak does not add it to existing clients.
+4. Create the groups and add people to them.
+5. Set:
 
    ```sh
    OIDC_ISSUER=https://auth.example.org/realms/acme
@@ -180,7 +184,8 @@ team. Someone who signs in before the next sync triggers a sync of their own
    ```
 
 To keep login and sync apart, create a second client with only service
-accounts on, give it the `view-users` role, and set `KEYCLOAK_CLIENT_ID` and
+accounts on, give it the `view-users` role (and, from Keycloak 26.8.2, the
+default scope `kc-admin-api`), and set `KEYCLOAK_CLIENT_ID` and
 `KEYCLOAK_CLIENT_SECRET` to it.
 
 [`dev/keycloak/library-realm.json`](../dev/keycloak/library-realm.json) is a
