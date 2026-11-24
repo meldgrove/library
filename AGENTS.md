@@ -56,8 +56,7 @@ API (`@anthropic-ai/sdk`) or any OpenAI-compatible chat completions API.
   email, Slack, digest, webhook, email intake) in `app_setting`:
   `definitions.ts` (fields and rules), `service.ts` (the one way to read and
   save, used by the page and `cli`), `secret-box.ts` (secrets sealed with a
-  key from `BETTER_AUTH_SECRET`), `legacy-env.ts` (the variables they were
-  until 0.3.2: imported once), `runtime.ts` (read at each use), `tests.ts`.
+  key from `BETTER_AUTH_SECRET`), `runtime.ts` (read at each use), `tests.ts`.
 - `src/cli/`: the operator command `cli settings …` (`docker-cli.sh`); only
   it creates the `operator` principal.
 - `src/workers/`: the pg-boss worker. `src/scripts/`: migrate, directory
@@ -161,8 +160,8 @@ npm run build                              # Next.js standalone build and dist/ 
 `compose.yaml` is the production setup, so every Compose command for the
 development services needs `-f compose.dev.yaml` (project `library-dev`).
 Keycloak's admin console is at http://localhost:8094 (`admin` / `admin`,
-realm `library`). To see emails in Mailpit (http://localhost:8026), set the
-SMTP lines in `.env.local` as `.env.example` shows.
+realm `library`). To see emails in Mailpit (http://localhost:8026), save the
+email setting as `.env.example` shows.
 
 End-to-end tests run against production builds, Keycloak, and PostgreSQL:
 one instance with the Keycloak directory (port 3000) and one with the manual

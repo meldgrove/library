@@ -1,19 +1,20 @@
+import { randomUUID } from "node:crypto";
 import { eq, like } from "drizzle-orm";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CommandError } from "@/lib/commands";
-import { appSetting, auditEvent, notificationDelivery } from "@/lib/db/schema";
+import { appSetting, auditEvent, notificationDelivery, webhookSync } from "@/lib/db/schema";
 import { emailToAddress, postToChannel } from "@/lib/library/notify";
 import { dispatchDue } from "@/lib/notifications/dispatch";
 import { DeliveryError, type EmailTransport } from "@/lib/notifications/transports";
+import { noteRemovedPayload } from "@/lib/webhook/payload";
 import { createWorkerIntegrations } from "@/workers/integrations";
 import { connectTestDatabase } from "../../../tests/integration/db";
 import { seedDirectory } from "../../../tests/integration/seed";
 import { operator } from "./actor";
 import { SETTING_NAMES, type SettingName } from "./definitions";
-import { importLegacySettings, leftoverVariables, reportLeftovers } from "./legacy-env";
-import { createSettingsReader } from "./runtime";
+import { createSettingsReader, webhookValues } from "./runtime";
 import { deriveSettingsKey } from "./secret-box";
-import { applySetting, listSettings, showSetting } from "./service";
+import { applySetting, listSettings, sealWebhookUrl, showSetting } from "./service";
 import { testSetting } from "./tests";
 
 const testDb = connectTestDatabase();
@@ -27,10 +28,10 @@ const BODIES: Record<SettingName, Record<string, unknown>> = {
   email: { provider: "smtp", smtpUrl: "smtps://library:smtp-password-7777@mail.example.org:465", from: "library@example.org" },
   slack: { botToken: "xoxb-1111-2222-bot-token-abcd", signingSecret: "signing-secret-0123456789abcdef" },
   digest: { slackChannelId: "C0123456789", emailTo: "all-staff@example.org" },
-  webhook: { url: "https://hooks.example.org/library", secret: "webhook-secret-0123456789" },
+  webhook: { url: "https://hooks.example.org/webhook-path-token-8888", secret: "webhook-secret-0123456789" },
   "email-intake": { imapUrl: "imaps://intake:imap-password-5555@imap.example.org:993", domains: ["example.org"] },
 };
-const SECRETS = ["sk-ant-api-key-0123456789-wxyz", "smtp-password-7777", "xoxb-1111-2222-bot-token-abcd", "signing-secret-0123456789abcdef", "webhook-secret-0123456789", "imap-password-5555"];
+const SECRETS = ["sk-ant-api-key-0123456789-wxyz", "smtp-password-7777", "xoxb-1111-2222-bot-token-abcd", "signing-secret-0123456789abcdef", "webhook-path-token-8888", "webhook-secret-0123456789", "imap-password-5555"];
 
 const rows = async () => db.select().from(appSetting).where(like(appSetting.key, "integration.%"));
 const audits = async () => db.select().from(auditEvent).where(eq(auditEvent.subjectType, "setting"));
@@ -63,6 +64,8 @@ describe("saving a setting", () => {
     expect(list.map(({ name }) => name)).toEqual(["ai", "email", "slack", "digest", "webhook", "email-intake"]);
     expect(list.every(({ state }) => state === "set")).toBe(true);
     expect(list.find((status) => status.name === "slack")!.hints).toEqual(["bot token …abcd", "signing secret …cdef"]);
+    expect(list.find((status) => status.name === "webhook")!.hints).toEqual(["https://hooks.example.org", "secret …6789"]);
+    for (const secret of SECRETS) expect(JSON.stringify([list, await audits()])).not.toContain(secret);
   });
 
   it("refuses a body with the page's message and saves nothing", async () => {
@@ -70,11 +73,11 @@ describe("saving a setting", () => {
     expect(error).toBeInstanceOf(CommandError);
     expect((error as CommandError).fieldErrors).toEqual({ secret: "is required with a URL" });
     expect((error as CommandError).message).toBe("The webhook setting was not saved. Check secret.");
-    expect(await showSetting(db, "webhook", key)).toMatchObject({ state: "not set", url: null });
+    expect(await showSetting(db, "webhook", key)).toMatchObject({ state: "not set", url: { saved: false, hint: null } });
     expect(await audits()).toEqual([]);
   });
 
-  it("is for admins only, unless the operator or the import saves", async () => {
+  it("is for admins only, unless the operator saves", async () => {
     await expect(applySetting(db, key, "digest", BODIES.digest, seed.actors.dan)).rejects.toMatchObject({ code: "forbidden" });
     expect(await showSetting(db, "digest", key)).toMatchObject({ state: "not set" });
   });
@@ -99,8 +102,13 @@ describe("saving a setting", () => {
     const otherKey = deriveSettingsKey("o".repeat(32));
     const [status] = (await listSettings(db, otherKey)).filter((setting) => setting.name === "webhook");
     expect(status).toMatchObject({ state: "incomplete" });
-    expect(status!.hints.at(-1)).toMatch(/secret cannot be read \(BETTER_AUTH_SECRET changed\): enter it again/);
-    expect(await createSettingsReader(db, otherKey).read("webhook")).toMatchObject({ state: "incomplete", unreadable: ["secret"] });
+    expect(status!.hints.at(-1)).toMatch(/^url, secret cannot be read \(BETTER_AUTH_SECRET changed\): enter them again$/);
+    expect(await showSetting(db, "webhook", otherKey)).toMatchObject({ state: "incomplete", url: { saved: true, hint: "https://hooks.example.org" } });
+    const values = await createSettingsReader(db, otherKey).read("webhook");
+    expect(values.unreadable).toEqual(["url", "secret"]);
+    expect(webhookValues(values)).toBeNull();
+    // Entered again, both can be read.
+    expect(await applySetting(db, otherKey, "webhook", BODIES.webhook, seed.actors.amy)).toMatchObject({ state: "set" });
   });
 });
 
@@ -148,106 +156,87 @@ describe("a changed BETTER_AUTH_SECRET", () => {
   });
 });
 
-describe("old variables", () => {
-  const OLD = {
-    SLACK_BOT_TOKEN: "xoxb-9999-8888-old-token-wxyz",
-    SMTP_URL: "smtp://mail.example.org:25",
-    MAIL_FROM: "library@example.org",
-    AI_PROVIDER: "openai-compatible",
-    AI_API_KEY: "old-ai-key-0123456789",
-    AI_MODEL: "mistral-medium-latest",
-    AI_BASE_URL: "https://api.mistral.ai/v1",
-    WEBHOOK_URL: "https://hooks.example.org/library",
-    WEBHOOK_SECRET: "old-webhook-secret-0123",
-    DIGEST_SLACK_CHANNEL_ID: "C0123456789",
-    EMAIL_INTAKE_IMAP_URL: "imaps://intake:old-imap-pass@imap.example.org",
-    EMAIL_INTAKE_DOMAINS: "example.org staff.example.org",
-  };
+describe("the webhook's URL", () => {
+  const URL_030 = "https://hooks.example.org/library/url-path-token?key=url-query-token";
+  const payload = noteRemovedPayload("n1");
 
-  it("are copied into the database once, sealed, with an audit entry by the environment", async () => {
-    const result = await importLegacySettings(db, key, OLD, "worker");
-    expect(result.refused).toEqual([]);
-    expect(result.imported.map(({ setting }) => setting).sort()).toEqual(["ai", "digest", "email", "email-intake", "slack", "webhook"]);
-    expect(await showSetting(db, "ai", key)).toMatchObject({ state: "set", provider: "openai-compatible", model: "mistral-medium-latest", apiKey: { saved: true, hint: "…6789" } });
-    expect(await showSetting(db, "email-intake", key)).toMatchObject({ state: "set", domains: ["example.org", "staff.example.org"], mailbox: null });
-    expect(JSON.stringify(await rows())).not.toContain("old-ai-key");
-    const imported = await audits();
-    expect(imported).toHaveLength(6);
-    expect(imported[0]).toMatchObject({ actorId: null, action: "setting.imported", payload: { actor: "environment", process: "worker" } });
+  /** The webhook as 0.3.3 and 0.3.4 saved it: the URL as plain text, the secret sealed. */
+  async function saveAsIn034() {
+    await applySetting(db, key, "webhook", { ...BODIES.webhook, url: URL_030 }, seed.actors.amy);
+    const [row] = await db.select().from(appSetting).where(eq(appSetting.key, "integration.webhook"));
+    await db.update(appSetting).set({ value: { ...(row!.value as object), url: URL_030 } }).where(eq(appSetting.key, "integration.webhook"));
+  }
 
-    // A second start imports nothing: the database has the values.
-    expect(await importLegacySettings(db, key, OLD, "worker")).toEqual({ imported: [], refused: [] });
-    expect(await audits()).toHaveLength(6);
+  const worker = (settingsKey: Buffer | null) =>
+    createWorkerIntegrations(createSettingsReader(db, settingsKey), { NOTIFICATION_TRANSPORT: "live", LIBRARY_BASE_URL: "https://library.example.org" }, { AI_FAKE: false, AI_DAILY_LIMIT: 10, AI_TIMEOUT_MS: 1_000 });
+
+  it("is kept when a body leaves it out, and turns the webhook off with null", async () => {
+    await applySetting(db, key, "webhook", { ...BODIES.webhook, url: URL_030 }, seed.actors.amy);
+    for (const body of [{ secret: "another-secret-0123456789" }, { url: "" }]) {
+      expect(await applySetting(db, key, "webhook", body, seed.actors.amy)).toMatchObject({ state: "set", url: { saved: true, hint: "https://hooks.example.org" } });
+    }
+    expect(webhookValues(await createSettingsReader(db, key).read("webhook"))).toEqual({ url: URL_030, secret: "another-secret-0123456789" });
+    expect(JSON.stringify(await audits())).not.toContain("token");
+    expect(await applySetting(db, key, "webhook", { url: null }, seed.actors.amy)).toMatchObject({ state: "not set", url: { saved: false, hint: null }, secret: { saved: false } });
   });
 
-  it("never overwrite what the database has, and stay ignored after an admin removed the value", async () => {
-    await applySetting(db, key, "webhook", { url: "https://receiver.example.org/hook", secret: "page-secret-0123456789" }, seed.actors.amy);
-    await importLegacySettings(db, key, OLD, "worker");
-    expect(await showSetting(db, "webhook", key)).toMatchObject({ url: "https://receiver.example.org/hook", secret: { hint: "…6789" } });
-
-    await applySetting(db, key, "slack", { botToken: null }, seed.actors.amy);
-    await importLegacySettings(db, key, OLD, "worker");
-    expect(await showSetting(db, "slack", key)).toMatchObject({ state: "not set", botToken: { saved: false } });
-  });
-
-  it("are imported wherever they are seen: the signing secret from web, the bot token from the worker", async () => {
-    await importLegacySettings(db, key, { SLACK_SIGNING_SECRET: "old-signing-secret-0123" }, "web");
-    expect(await showSetting(db, "slack", key)).toMatchObject({ state: "incomplete", signingSecret: { saved: true } });
-    await importLegacySettings(db, key, { SLACK_BOT_TOKEN: OLD.SLACK_BOT_TOKEN }, "worker");
-    expect(await showSetting(db, "slack", key)).toMatchObject({ state: "set", botToken: { hint: "…wxyz" }, signingSecret: { saved: true } });
-  });
-
-  it("never overwrite a save that commits while the import runs", async () => {
-    let saved!: () => void;
-    let release!: () => void;
-    const savedNow = new Promise<void>((resolve) => (saved = resolve));
-    const released = new Promise<void>((resolve) => (release = resolve));
-    // An admin's save, not yet committed.
-    const save = db.transaction(async (tx) => {
-      await applySetting(tx, key, "webhook", { url: "https://receiver.example.org/hook", secret: "page-secret-0123456789" }, seed.actors.amy);
-      saved();
-      await released;
+  it("of 0.3.4 is sealed once at start, and delivers before and after", async () => {
+    await saveAsIn034();
+    const requested: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      requested.push(url);
+      return new Response(null, { status: 204 });
     });
-    await savedNow;
-    const imported = importLegacySettings(db, key, { WEBHOOK_URL: OLD.WEBHOOK_URL, WEBHOOK_SECRET: OLD.WEBHOOK_SECRET }, "worker");
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    release();
-    await save;
-    expect(await imported).toEqual({ imported: [], refused: [] });
-    expect(await showSetting(db, "webhook", key)).toMatchObject({ url: "https://receiver.example.org/hook", secret: { hint: "…6789" } });
+    try {
+      // Not sealed yet, such as by a web process that is still the old one: shown as a hint only.
+      await (await worker(key).webhookClient())!.send(payload);
+      expect(await showSetting(db, "webhook", key)).toMatchObject({ state: "set", url: { saved: true, hint: "https://hooks.example.org" } });
+      expect(JSON.stringify(await listSettings(db, key))).not.toContain("token");
+
+      // Two processes that start together seal it once.
+      expect((await Promise.all([sealWebhookUrl(db, key), sealWebhookUrl(db, key)])).sort()).toEqual([false, true]);
+      const sealed = await rows();
+      expect(JSON.stringify(sealed)).not.toContain("token");
+      expect(await sealWebhookUrl(db, key)).toBe(false);
+      expect(await rows()).toEqual(sealed);
+      expect(await showSetting(db, "webhook", key)).toMatchObject({ state: "set", url: { saved: true, hint: "https://hooks.example.org" } });
+      await (await worker(key).webhookClient())!.send(payload);
+      expect(requested).toEqual([URL_030, URL_030]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
-  it("are imported once when two processes start together", async () => {
-    await Promise.all([importLegacySettings(db, key, OLD, "web"), importLegacySettings(db, key, OLD, "worker"), importLegacySettings(db, key, OLD, "migrate")]);
-    expect(await audits()).toHaveLength(6);
+  it.each(["saved", "off"])("is gone from the stored delivery errors of 0.3.4 after the start (webhook %s)", async (webhook) => {
+    if (webhook === "saved") await saveAsIn034();
+    const [quoting, other] = [randomUUID(), randomUUID()];
+    await db.insert(webhookSync).values([
+      { noteId: quoting, action: "publish", lastError: "Request to https://hooks.example.org failed: Request cannot be constructed from a URL that includes credentials: https://user:old-token@hooks.example.org/cut-off" },
+      { noteId: other, action: "publish", lastError: "The webhook answered HTTP 500" },
+    ]);
+    expect(await sealWebhookUrl(db, key)).toBe(webhook === "saved");
+    const errors = await db.select({ noteId: webhookSync.noteId, lastError: webhookSync.lastError }).from(webhookSync);
+    expect(new Map(errors.map((row) => [row.noteId, row.lastError]))).toEqual(new Map([[quoting, null], [other, "The webhook answered HTTP 500"]]));
   });
 
-  it("that the database refuses are left for the next start, with the reason", async () => {
-    await applySetting(db, key, "email", { provider: "mailersend", mailersendToken: "mlsn.0123456789abcdef", from: "a@example.org" }, seed.actors.amy);
-    const result = await importLegacySettings(db, key, { SMTP_URL: OLD.SMTP_URL }, "worker");
-    expect(result.refused).toEqual([{ setting: "email", variables: ["SMTP_URL"], message: expect.stringMatching(/provider must be "smtp"/) }]);
-    expect(await showSetting(db, "email", key)).toMatchObject({ provider: "mailersend" });
+  it("is off without a webhook, also after the start", async () => {
+    expect(await sealWebhookUrl(db, key)).toBe(false);
+    expect(await showSetting(db, "webhook", key)).toMatchObject({ state: "not set" });
+    expect(await worker(key).webhookClient()).toBeNull();
   });
+});
 
-  it("still set are named per process, without values", async () => {
-    await reportLeftovers(db, "worker", OLD);
-    await reportLeftovers(db, "web", { SLACK_SIGNING_SECRET: "x" });
-    const leftovers = await leftoverVariables(db);
-    expect(leftovers).toContainEqual({ variable: "SLACK_BOT_TOKEN", processes: ["worker"] });
-    expect(leftovers).toContainEqual({ variable: "SLACK_SIGNING_SECRET", processes: ["web"] });
-    expect(JSON.stringify(leftovers)).not.toContain("old-ai-key");
-    // A start without them clears the list.
-    await reportLeftovers(db, "worker", {});
-    expect((await leftoverVariables(db)).map(({ variable }) => variable)).toEqual(["SLACK_SIGNING_SECRET"]);
-  });
-
-  it("are what a worker without BETTER_AUTH_SECRET reads, as with a compose.yaml of 0.3.2 or earlier", async () => {
-    await applySetting(db, key, "ai", BODIES.ai, seed.actors.amy);
-    const integrations = createWorkerIntegrations(createSettingsReader(db, null, OLD), { NOTIFICATION_TRANSPORT: "live", LIBRARY_BASE_URL: "https://library.example.org" }, { AI_FAKE: false, AI_DAILY_LIMIT: 10, AI_TIMEOUT_MS: 1_000 });
-    expect(integrations.mode).toBe("environment");
-    expect((await integrations.draftModel())?.name).toBe("mistral-medium-latest");
-    expect((await integrations.transports()).email?.kind).toBe("smtp");
-    expect(await integrations.channels()).toMatchObject({ slack: "live", email: "live", webhook: "live", ai: "live", settings: "environment" });
+describe("a worker without BETTER_AUTH_SECRET (a compose.yaml of 0.3.2 or earlier)", () => {
+  it("starts, cannot read any secret, and reports it", async () => {
+    for (const name of SETTING_NAMES) await applySetting(db, key, name, BODIES[name], seed.actors.amy);
+    const integrations = createWorkerIntegrations(createSettingsReader(db, null), { NOTIFICATION_TRANSPORT: "live", LIBRARY_BASE_URL: "https://library.example.org" }, { AI_FAKE: false, AI_DAILY_LIMIT: 10, AI_TIMEOUT_MS: 1_000 });
+    expect(await integrations.channels()).toEqual({ slack: "off", email: "off", webhook: "off", ai: "off", settings: "no key" });
+    expect((await integrations.transports()).email?.mode).toBe("unreadable");
+    expect(await integrations.draftModel()).toBeNull();
+    expect(await integrations.webhookClient()).toBeNull();
+    expect(await integrations.emailIntake()).toBeNull();
+    // What is no secret still counts.
+    expect(await integrations.digest()).toEqual({ slackChannelId: "C0123456789", emailTo: "all-staff@example.org" });
   });
 });
 
@@ -274,7 +263,7 @@ describe("tests", () => {
     const sent: unknown[] = [];
     const emailTransport = (): EmailTransport => ({ mode: "live", kind: "smtp", send: async (email) => void sent.push(email) });
     await expect(testSetting(db, key, "email", {}, { emailTransport })).rejects.toBeInstanceOf(CommandError);
-    // A server answer that repeats the password does not reach the page or the command.
+    // The mail server's own reply, without the login; a failure without a reply has only its code.
     const failing = (error: DeliveryError) => (): EmailTransport => ({
       mode: "live",
       kind: "smtp",
@@ -283,14 +272,19 @@ describe("tests", () => {
       },
     });
     const to = { to: "ada@example.org" };
-    expect(await testSetting(db, key, "email", to, { emailTransport: failing(new DeliveryError("SMTP 550: mailbox pw smtp-password-7777 unknown")) })).toEqual({
+    expect(await testSetting(db, key, "email", to, { emailTransport: failing(new DeliveryError("SMTP 550: mailbox pw smtp-password-7777 unknown", { reply: "550 5.7.1 mailbox pw *** unknown" })) })).toEqual({
       ok: false,
-      message: "The email was not sent: the server answered 550.",
+      message: 'The email was not sent: the mail server answered "550 5.7.1 mailbox pw *** unknown".',
     });
-    expect(await testSetting(db, key, "email", to, { emailTransport: failing(new DeliveryError("SMTP 535: no for library:x", { code: "EAUTH" })) })).toEqual({
-      ok: false,
-      message: "The email was not sent: the mail server refused the user or password.",
-    });
+    expect((await testSetting(db, key, "email", to, { emailTransport: failing(new DeliveryError("SMTP 535: no for library:x", { code: "EAUTH", reply: "535 5.7.8 no for ***:x" })) })).message).toBe(
+      'The email was not sent: the mail server refused the user or password. It answered "535 5.7.8 no for ***:x".',
+    );
+    expect((await testSetting(db, key, "email", to, { emailTransport: failing(new DeliveryError("EAUTH: Missing credentials", { code: "EAUTH" })) })).message).toBe(
+      "The email was not sent: the mail server refused the user or password.",
+    );
+    expect((await testSetting(db, key, "email", to, { emailTransport: failing(new DeliveryError("SMTP 500: Invalid HELO: 500 internal", { code: "EPROTOCOL" })) })).message).toBe(
+      "The email was not sent: the server answered 500.",
+    );
     expect((await testSetting(db, key, "email", to, { emailTransport: failing(new DeliveryError("ECONNREFUSED: x", { code: "ECONNECTION" })) })).message).toBe(
       "The email was not sent: the mail server could not be reached (ECONNECTION).",
     );

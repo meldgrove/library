@@ -2,12 +2,12 @@ import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:cr
 import { getSettingsSecretConfig } from "@/lib/config";
 
 /*
- * Secrets of the settings in the database (tokens, passwords, API keys) are
- * sealed with AES-256-GCM. The key is derived from BETTER_AUTH_SECRET with
- * HKDF, so no new variable is needed; a new BETTER_AUTH_SECRET means
- * entering these secrets again. Each sealed value is bound to its setting and
- * field, so it cannot be moved to another one. Format:
- * `v1:<base64url of IV (12 bytes), tag (16 bytes), ciphertext>`.
+ * Secrets of the settings in the database (tokens, passwords, API keys, URLs
+ * that may hold one) are sealed with AES-256-GCM. The key is derived from
+ * BETTER_AUTH_SECRET with HKDF, so no new variable is needed; a new
+ * BETTER_AUTH_SECRET means entering these secrets again. Each sealed value is
+ * bound to its setting and field, so it cannot be moved to another one.
+ * Format: `v1:<base64url of IV (12 bytes), tag (16 bytes), ciphertext>`.
  */
 
 const VERSION = "v1";
@@ -32,7 +32,7 @@ export function deriveSettingsKey(secret: string): Buffer {
   return Buffer.from(hkdfSync("sha256", secret, "meldgrove-library", "settings secrets v1", 32));
 }
 
-/** This process's key, or null when it has no BETTER_AUTH_SECRET (the worker with a Compose file up to 0.3.2). */
+/** This process's key, or null when it has no BETTER_AUTH_SECRET (worker and migrate with a Compose file up to 0.3.2). */
 export function getSettingsKey(): Buffer | null {
   const secret = getSettingsSecretConfig().BETTER_AUTH_SECRET;
   return secret ? deriveSettingsKey(secret) : null;

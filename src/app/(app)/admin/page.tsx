@@ -19,7 +19,6 @@ import { countPendingCleanups } from "@/lib/library/originals";
 import { openProblemCount } from "@/lib/library/pipeline";
 import { getWebhookStatus } from "@/lib/webhook/sync";
 import { getNotificationStatus } from "@/lib/notifications/queries";
-import { leftoverVariables } from "@/lib/settings/legacy-env";
 import type { ChannelMode } from "@/lib/notifications/types";
 import { SyncNowForm } from "./sync-now-form";
 
@@ -36,14 +35,13 @@ export default async function AdminPage() {
   await requireAdmin();
   const fmt = await getFormatter();
   const sync = getDirectory().sync;
-  const [status, notifications, openUploads, problems, webhook, pendingCleanups, leftovers] = await Promise.all([
+  const [status, notifications, openUploads, problems, webhook, pendingCleanups] = await Promise.all([
     getDirectoryStatus(getDb()),
     getNotificationStatus(getDb()),
     countOpenSubmissions(getDb()),
     openProblemCount(getDb()),
     getWebhookStatus(getDb()),
     countPendingCleanups(getDb()),
-    leftoverVariables(getDb()),
   ]);
   const channels = status.workerHeartbeat?.channels;
   const lastRun = status.recentRuns[0];
@@ -79,22 +77,15 @@ export default async function AdminPage() {
         }
       />
 
-      {channels?.settings === "environment" ? (
+      {channels?.settings === "no key" ? (
         <Alert variant="destructive">
           <CircleAlert aria-hidden="true" />
           <AlertDescription>
-            The worker has no BETTER_AUTH_SECRET (a compose.yaml of version 0.3.2 or earlier), so it reads the old variables from .env instead
-            of the settings under <Link className="underline underline-offset-2" href="/admin/integrations">Integrations</Link>. Update
-            compose.yaml on the server.
-          </AlertDescription>
-        </Alert>
-      ) : leftovers.length > 0 ? (
-        <Alert>
-          <CircleAlert aria-hidden="true" />
-          <AlertDescription>
-            {leftovers.map(({ variable }) => variable).join(", ")} {leftovers.length === 1 ? "is" : "are"} still set on the server. The
-            library keeps these settings under <Link className="underline underline-offset-2" href="/admin/integrations">Integrations</Link>{" "}
-            now: delete {leftovers.length === 1 ? "it" : "them"} from .env.
+            <p>
+              The worker has no BETTER_AUTH_SECRET (a compose.yaml of version 0.3.2 or earlier), so it cannot read the secrets of the settings
+              under <Link className="underline underline-offset-2" href="/admin/integrations">Integrations</Link>. Update compose.yaml on the
+              server.
+            </p>
           </AlertDescription>
         </Alert>
       ) : null}

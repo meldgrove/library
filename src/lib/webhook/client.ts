@@ -3,19 +3,20 @@ import type { WebhookPayload } from "./payload";
 
 /*
  * Posts payloads to the webhook URL. Each request is signed with HMAC-SHA256
- * over "<timestamp>.<body>" with WEBHOOK_SECRET, so the receiver can check
- * that it comes from the library and is recent:
+ * over "<timestamp>.<body>" with the webhook's signing secret, so the
+ * receiver can check that it comes from the library and is recent:
  *
  *   Library-Timestamp: <Unix time in seconds>
  *   Library-Signature: sha256=<hex digest>
  *   Library-Delivery: <random ID of this request>
  *
- * Any 2xx answer counts as delivered. Redirects are not followed.
+ * Any 2xx answer counts as delivered. Redirects are not followed. The URL
+ * may hold a token, so an error names only its server.
  */
 
 export class WebhookError extends Error {
-  constructor(message: string, options?: { cause?: unknown }) {
-    super(message, options);
+  constructor(message: string) {
+    super(message);
     this.name = "WebhookError";
   }
 }
@@ -59,7 +60,9 @@ export function createWebhookClient(options: {
           signal: AbortSignal.timeout(timeoutMs),
         });
       } catch (error) {
-        throw new WebhookError(`Request to ${new URL(options.url).origin} failed: ${(error as Error).message}`, { cause: error });
+        // fetch quotes a URL that it refuses, such as one with user info.
+        const { origin } = new URL(options.url);
+        throw new WebhookError(`Request to ${origin} failed: ${(error as Error).message.replaceAll(options.url, origin)}`);
       }
       // The status determines delivery. Cancel the unused stream without
       // waiting for the receiver or collecting its response in memory.

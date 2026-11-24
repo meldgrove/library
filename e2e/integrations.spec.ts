@@ -46,3 +46,27 @@ test("an admin sets up the AI model under Integrations: write only, with a hint"
   await expect(page.getByText("AI model saved.")).toBeVisible();
   await expect(state).toContainText("Off");
 });
+
+test("the webhook's URL is write only: the page shows its server, and removing it turns the webhook off", async ({ page }) => {
+  await query("delete from app_setting where key = 'integration.webhook'");
+  await signIn(page, "adam");
+  await page.goto("/admin/integrations");
+  const webhook = page.getByRole("form", { name: "Webhook" });
+  const state = page.getByRole("heading", { name: "Webhook", level: 2 }).locator("..");
+  await webhook.getByLabel("URL").fill("http://127.0.0.1:9/e2e-path-token?key=e2e-query-token");
+  await webhook.getByLabel("Signing secret").fill("e2e-webhook-secret-0123456789");
+  await webhook.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Webhook saved.")).toBeVisible();
+  await expect(state).toContainText("Set up");
+
+  await page.reload();
+  await expect(webhook).toContainText("Stored (http://127.0.0.1:9)");
+  expect(await page.content()).not.toContain("e2e-path-token");
+  const [row] = await query<{ value: string }>("select value::text from app_setting where key = 'integration.webhook'");
+  expect(row?.value).not.toMatch(/e2e-(path|query)-token|e2e-webhook-secret/);
+  await expectAccessible(page);
+
+  await webhook.getByRole("button", { name: "Remove" }).first().click();
+  await webhook.getByRole("button", { name: "Save" }).click();
+  await expect(state).toContainText("Off");
+});

@@ -1,9 +1,9 @@
 import { parseArgs, type ParseArgsOptionsConfig } from "node:util";
 import { CommandError } from "@/lib/commands";
 import type { Database } from "@/lib/db/client";
+import { latestWorkerChannels } from "@/lib/notifications/queries";
 import { operator } from "@/lib/settings/actor";
 import { isSettingName, SETTING_NAMES, SETTINGS, type SettingName } from "@/lib/settings/definitions";
-import { LEGACY_VARIABLES, leftoverVariables, workerSettingsMode } from "@/lib/settings/legacy-env";
 import { applySetting, listSettings, showSetting } from "@/lib/settings/service";
 import { isTestable, testSetting, type TestDeps } from "@/lib/settings/tests";
 import { UsageError, type CliIo } from "./io";
@@ -64,27 +64,16 @@ export async function settingsCommand(args: string[], io: CliIo, deps: SettingsD
 
   if (command === "list") {
     const values = parse(rest, { json: { type: "boolean" } }, "cli settings list [--json]");
-    const [statuses, leftovers, workerMode] = await Promise.all([listSettings(deps.db, deps.key), leftoverVariables(deps.db), workerSettingsMode(deps.db)]);
-    const rows = statuses.map(({ name, state, hints }) => ({
-      name,
-      state,
-      hints,
-      oldVariables: leftovers.filter(({ variable }) => variable in LEGACY_VARIABLES[name]),
-    }));
+    const [statuses, channels] = await Promise.all([listSettings(deps.db, deps.key), latestWorkerChannels(deps.db)]);
+    const rows = statuses.map(({ name, state, hints }) => ({ name, state, hints }));
     if (values.json) {
       io.out(json(rows));
       return 0;
     }
     const width = Math.max(...rows.map((row) => row.name.length));
-    for (const row of rows) {
-      io.out(`${`${row.name.padEnd(width)}  ${row.state.padEnd(10)}  ${row.hints.join(", ")}`.trimEnd()}\n`);
-      if (row.oldVariables.length > 0) {
-        const names = row.oldVariables.map(({ variable, processes }) => `${variable} (${processes.join(", ")})`).join(", ");
-        io.out(`${" ".repeat(width + 2)}old variables still set: ${names}${workerMode === "environment" ? "" : ". Delete them from .env: the settings are in the database"}\n`);
-      }
-    }
-    if (workerMode === "environment") {
-      io.out("\nThe worker has no BETTER_AUTH_SECRET (a compose.yaml of 0.3.2 or earlier): it reads the old variables, not these settings. Update compose.yaml.\n");
+    for (const row of rows) io.out(`${`${row.name.padEnd(width)}  ${row.state.padEnd(10)}  ${row.hints.join(", ")}`.trimEnd()}\n`);
+    if (channels?.settings === "no key") {
+      io.out("\nThe worker has no BETTER_AUTH_SECRET (a compose.yaml of 0.3.2 or earlier): it cannot read the secrets of these settings. Update compose.yaml.\n");
     }
     return 0;
   }

@@ -7,9 +7,9 @@ import { UploadForm } from "@/components/library/upload-form";
 import { requireUser } from "@/lib/auth/session";
 import { getStorageConfig, getUploadConfig } from "@/lib/config";
 import { getDb } from "@/lib/db/client";
-import { latestWorkerChannels } from "@/lib/settings/legacy-env";
 import { NOTE_LIMITS, UPLOAD_CONFIRMATION, UPLOAD_RULES } from "@/lib/library/constants";
 import { ACCEPT_ATTRIBUTE } from "@/lib/library/file-types";
+import { latestWorkerChannels } from "@/lib/notifications/queries";
 
 export const metadata: Metadata = { title: "Add to library" };
 

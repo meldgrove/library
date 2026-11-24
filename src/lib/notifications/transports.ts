@@ -1,8 +1,9 @@
 import nodemailer from "nodemailer";
 import { logger } from "@/lib/logger";
 import type { EmailValues, UnreadableChannels } from "@/lib/settings/runtime";
-import { safeSmtpUrl } from "@/lib/settings/smtp-url";
+import { safeSmtpUrl, smtpLogin } from "@/lib/settings/smtp-url";
 import { isPermanentSlackError, isPermanentSlackStatus } from "@/lib/slack/errors";
+import { smtpReply } from "./smtp-reply";
 import type { ChannelMode, NotificationChannels } from "./types";
 
 /*
@@ -19,12 +20,15 @@ import type { ChannelMode, NotificationChannels } from "./types";
 export class DeliveryError extends Error {
   readonly code?: string;
   readonly retryAfterMs?: number;
+  /** SMTP: the mail server's own answer without the login (`smtpReply`), for the test of the email setting. */
+  readonly reply: string | null;
   readonly permanent: boolean;
-  constructor(message: string, options: { code?: string; retryAfterMs?: number; permanent?: boolean } = {}) {
+  constructor(message: string, options: { code?: string; retryAfterMs?: number; reply?: string | null; permanent?: boolean } = {}) {
     super(message);
     this.name = "DeliveryError";
     this.code = options.code;
     this.retryAfterMs = options.retryAfterMs;
+    this.reply = options.reply ?? null;
     this.permanent = options.permanent ?? false;
   }
 }
@@ -180,8 +184,9 @@ export function createSmtpTransport(
 ): EmailTransport {
   // The URL sets host, port, TLS, and credentials; the timeouts apply on top.
   // Nodemailer would also take options that run a program from it: those are left out.
+  const url = safeSmtpUrl(options.url);
   const transporter = createTransport({
-    url: safeSmtpUrl(options.url),
+    url,
     connectionTimeout: TIMEOUT_MS,
     greetingTimeout: TIMEOUT_MS,
     socketTimeout: TIMEOUT_MS,
@@ -203,6 +208,7 @@ export function createSmtpTransport(
         const detail = smtp.responseCode ? `SMTP ${smtp.responseCode}` : (smtp.code ?? "SMTP");
         throw new DeliveryError(`${detail}: ${smtp.message}`.slice(0, 500), {
           code: smtp.code,
+          reply: smtpReply(smtp, smtpLogin(url)),
           permanent: (smtp.responseCode ?? 0) >= 500 || smtp.code === "EAUTH",
         });
       }

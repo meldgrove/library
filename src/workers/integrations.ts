@@ -28,7 +28,6 @@ import { createWebhookClient, type WebhookClient } from "@/lib/webhook/client";
  */
 
 export interface WorkerIntegrations {
-  mode: SettingsReader["mode"];
   transports(): Promise<Transports>;
   /** Null while no AI provider is set up: drafting waits. */
   draftModel(): Promise<DraftModel | null>;
@@ -55,7 +54,6 @@ export function createWorkerIntegrations(reader: SettingsReader, notification: N
   };
 
   return {
-    mode: reader.mode,
     transports,
     draftModel: async () => modelFor(limits.AI_FAKE ? null : aiValues(await reader.read("ai"))),
     webhookClient: async () => webhookFor(webhookValues(await reader.read("webhook"))),
@@ -67,7 +65,7 @@ export function createWorkerIntegrations(reader: SettingsReader, notification: N
         ...channelModes(await transports()),
         webhook: webhookValues(await reader.read("webhook")) ? "live" : "off",
         ai: limits.AI_FAKE ? "console" : aiValues(await reader.read("ai")) ? "live" : "off",
-        settings: reader.mode,
+        settings: reader.hasKey ? "database" : "no key",
       };
     },
   };

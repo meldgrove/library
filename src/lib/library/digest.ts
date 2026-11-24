@@ -14,8 +14,8 @@ import { emailToAddress, notifyPerson, postToChannel } from "./notify";
  * The weekly digest, Mondays at 09:00 (server time), with the notes
  * published since the Monday 09:00 before. Plain code, no AI model.
  *
- * - The library's Slack channel (DIGEST_SLACK_CHANNEL_ID) and mailing list
- *   (DIGEST_EMAIL_TO) get notes for everyone.
+ * - The library's Slack channel and mailing list (the `digest` setting) get
+ *   notes for everyone.
  * - A team's Slack channel gets the team's notes for everyone or the team.
  * - Each person who follows tags gets an email with the new notes that carry
  *   one of them and that they may see (`visibleNotes`), except their own.

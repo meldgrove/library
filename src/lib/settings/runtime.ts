@@ -1,46 +1,34 @@
 import type { Database } from "@/lib/db/client";
 import { logger } from "@/lib/logger";
 import { DEFAULT_FROM_NAME, DEFAULT_INTAKE_MAILBOX, type AiProvider, type SettingName } from "./definitions";
-import { legacyValues } from "./legacy-env";
 import { loadSettingValues, type SettingValues } from "./service";
 
 /*
  * How a running process reads the settings: from the database on each use
- * (a save on the admin page or with `cli settings` applies at the next
- * use), or, in a process without BETTER_AUTH_SECRET, from the old variables
- * (`legacy-env.ts`).
+ * (a save on the admin page or with `cli settings` applies at the next use).
  */
 
-type Env = Record<string, string | undefined>;
-
-export type SettingsMode = "database" | "environment";
-
 export interface SettingsReader {
-  mode: SettingsMode;
+  /** False in a process without BETTER_AUTH_SECRET: it cannot read any secret. */
+  hasKey: boolean;
   read(name: SettingName): Promise<SettingValues>;
 }
 
-export function createSettingsReader(db: Database, key: Buffer | null, env: Env = process.env): SettingsReader {
-  if (!key) {
-    // The variables do not change while the process runs.
-    const cache = new Map<SettingName, SettingValues>();
-    return {
-      mode: "environment",
-      read: async (name) => {
-        if (!cache.has(name)) cache.set(name, legacyValues(name, env));
-        return cache.get(name)!;
-      },
-    };
-  }
+export function createSettingsReader(db: Database, key: Buffer | null): SettingsReader {
   const warned = new Set<string>();
   return {
-    mode: "database",
+    hasKey: key !== null,
     async read(name) {
       const values = await loadSettingValues(db, key, name);
       for (const field of values.unreadable) {
         if (warned.has(`${name}.${field}`)) continue;
         warned.add(`${name}.${field}`);
-        logger.error({ setting: name, field }, "a saved secret cannot be read (BETTER_AUTH_SECRET changed): enter it again under Admin › Integrations");
+        logger.error(
+          { setting: name, field },
+          key
+            ? "a saved secret cannot be read (BETTER_AUTH_SECRET changed): enter it again under Admin › Integrations"
+            : "a saved secret cannot be read: this process has no BETTER_AUTH_SECRET. Update compose.yaml (docs/deployment.md, Upgrades)",
+        );
       }
       return values;
     },

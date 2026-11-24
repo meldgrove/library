@@ -60,10 +60,6 @@ export interface NotificationChannels {
   webhook?: ChannelMode;
   /** Drafting: a real model (live), the fake one (console), or none set up (off). */
   ai?: ChannelMode;
-  /**
-   * Where the worker reads the settings of Admin › Integrations: the
-   * database, or (without BETTER_AUTH_SECRET, from a Compose file before
-   * 0.3.2) the old variables.
-   */
-  settings?: "database" | "environment";
+  /** "no key": the worker has no BETTER_AUTH_SECRET (a Compose file up to 0.3.2), so it cannot read the secrets of the settings. */
+  settings?: "database" | "no key";
 }

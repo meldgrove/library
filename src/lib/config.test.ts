@@ -146,11 +146,6 @@ describe("parseNotificationConfig", () => {
     expect(parseNotificationConfig({ ...base, NODE_ENV: "development" }).NOTIFICATION_TRANSPORT).toBe("console");
     expect(parseNotificationConfig({ ...base, NODE_ENV: "production", NOTIFICATION_TRANSPORT: "console" }).NOTIFICATION_TRANSPORT).toBe("console");
   });
-
-  it("ignores the old Slack and email variables: they are settings in the database now", () => {
-    const config = parseNotificationConfig({ ...base, SLACK_BOT_TOKEN: "xoxp-123", SMTP_URL: "https://mail.example.org" });
-    expect(config).toEqual({ NOTIFICATION_TRANSPORT: "console", LIBRARY_BASE_URL: "https://library.example.org" });
-  });
 });
 
 describe("validateWorkerConfig", () => {
@@ -160,12 +155,10 @@ describe("validateWorkerConfig", () => {
     expect(() => validateWorkerConfig({ ...rest, LIBRARY_BASE_URL: "https://library.example.org" })).not.toThrow();
   });
 
-  it("starts in production without an AI model, and with the variables of a Compose file up to 0.3.2", () => {
+  it("starts in production without an AI model, and with the AI_PROVIDER that a Compose file up to 0.3.4 passes", () => {
     const production = { DATABASE_URL: "postgres://u:p@db:5432/library", STORAGE_DIR: "/data", NODE_ENV: "production", LIBRARY_BASE_URL: "https://library.example.org", ...manualDirectory };
     expect(() => validateWorkerConfig(production)).not.toThrow();
-    expect(() =>
-      validateWorkerConfig({ ...production, AI_PROVIDER: "openai-compatible", AI_API_KEY: "", DIGEST_SLACK_CHANNEL_ID: "library", WEBHOOK_URL: "https://hooks.example.org" }),
-    ).not.toThrow();
+    expect(() => validateWorkerConfig({ ...production, AI_PROVIDER: "openai-compatible" })).not.toThrow();
   });
 });
 
