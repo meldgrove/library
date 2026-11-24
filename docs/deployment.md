@@ -190,7 +190,7 @@ A body changes only the fields it names. A secret that is left out or empty
 stays as saved; `null` removes it (and clears any other field). Secrets go
 only on stdin, never in an argument: arguments show in `ps` and the shell
 history. Typed or pasted into a terminal, the body is not shown; end it with
-Enter and Ctrl-D. Exit codes: 0 done, 1 refused (the page's message on
+Ctrl-D. Exit codes: 0 done, 1 refused (the page's message on
 stderr), 2 a wrong command or a body that is not JSON. The command needs the
 `compose.yaml` of this release, which passes `BETTER_AUTH_SECRET` to
 `migrate`. Library issues no tokens, so there is no `cli tokens`.

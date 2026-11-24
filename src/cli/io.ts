@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import type { ReadStream } from "node:tty";
 import { CommandError } from "@/lib/commands";
 
 /** What a command reads and writes; tests pass their own. */
@@ -26,40 +26,69 @@ export class UsageError extends Error {
 /** The largest body: settings are small. */
 const MAX_BODY_BYTES = 512 * 1024;
 
-/** Turns the terminal's echo off while a body is pasted, so its secret is not shown. True when it worked. */
-const echo = (on: boolean) => spawnSync("stty", [on ? "echo" : "-echo"], { stdio: ["inherit", "ignore", "ignore"] }).status === 0;
+const tooLarge = () =>
+  new CommandError("invalid", "The body is larger than 512 KiB.");
 
-function restoreEchoAndExit() {
-  echo(true);
-  process.exit(130);
+/**
+ * A body pasted into a terminal (Coolify's): read in raw mode, so the terminal shows
+ * nothing and does not cut a line at its 4 KiB limit. Ctrl-D ends the body; Ctrl-C
+ * stops the command. Node restores the terminal's mode when the process exits.
+ */
+function readPasted(): Promise<Buffer> {
+  const stdin = process.stdin as ReadStream;
+  process.stderr.write(
+    "Paste the JSON body (it is not shown), then press Ctrl-D.\n",
+  );
+  stdin.setRawMode(true);
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    const finish = (error?: Error) => {
+      stdin.off("data", onData);
+      stdin.setRawMode(false);
+      stdin.pause();
+      process.stderr.write("\n");
+      if (error) reject(error);
+      else resolve(Buffer.concat(chunks));
+    };
+    const onData = (chunk: Buffer) => {
+      const end = chunk.indexOf(0x04);
+      const cancel = chunk.indexOf(0x03);
+      if (cancel !== -1 && (end === -1 || cancel < end)) {
+        finish();
+        process.exit(130);
+      }
+      const part = end === -1 ? chunk : chunk.subarray(0, end);
+      size += part.length;
+      if (size > MAX_BODY_BYTES) {
+        finish(tooLarge());
+        return;
+      }
+      chunks.push(part);
+      if (end !== -1) finish();
+    };
+    stdin.on("data", onData);
+    stdin.resume();
+  });
+}
+
+async function readPiped(): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of process.stdin as AsyncIterable<Buffer>) {
+    size += chunk.length;
+    if (size > MAX_BODY_BYTES) throw tooLarge();
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
 }
 
 export function processIo(): CliIo {
   return {
     async readStdin() {
-      const terminal = process.stdin.isTTY;
-      if (terminal) {
-        // Echo goes off before the prompt: nothing pasted after the prompt is shown.
-        if (!echo(false)) throw new UsageError("The terminal's echo cannot be turned off: pipe the body in instead.", "cli settings apply <name> < body.json");
-        process.once("SIGINT", restoreEchoAndExit);
-        process.stderr.write("Paste the JSON body (it is not shown), then press Enter and Ctrl-D.\n");
-      }
-      try {
-        const chunks: Buffer[] = [];
-        let size = 0;
-        for await (const chunk of process.stdin as AsyncIterable<Buffer>) {
-          size += chunk.length;
-          if (size > MAX_BODY_BYTES) throw new CommandError("invalid", "The body is larger than 512 KiB.");
-          chunks.push(chunk);
-        }
-        // An editor may start the file with a byte order mark.
-        return Buffer.concat(chunks).toString("utf8").replace(/^﻿/, "");
-      } finally {
-        if (terminal) {
-          process.off("SIGINT", restoreEchoAndExit);
-          echo(true);
-        }
-      }
+      const body = process.stdin.isTTY ? await readPasted() : await readPiped();
+      // An editor may start the file with a byte order mark.
+      return body.toString("utf8").replace(/^\uFEFF/, "");
     },
     out: (text) => void process.stdout.write(text),
     err: (text) => void process.stderr.write(text),

@@ -44,8 +44,10 @@ see [Deployment](deployment.md). Every variable is described in
 `cli` is on the `PATH` of the library's containers. In the resource's
 **Terminal**, choose the `web` or `worker` container and run, for example,
 `cli settings list`. `cli settings apply <name>` reads the JSON body from
-stdin: paste it (it is not shown), then press Enter and Ctrl-D. The
-commands, the setting names, and an example body for each are in
+stdin: paste it (it is not shown), then press Ctrl-D. Do not type the body
+into the shell itself, for example as a heredoc: the shell's history would
+keep the secret. The commands, the setting names, and an example body for
+each are in
 [Deployment](deployment.md#settings-from-the-command-line).
 
 Up to 0.3.2, the AI model, email, Slack, the webhook, the weekly digest and
