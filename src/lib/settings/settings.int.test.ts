@@ -209,14 +209,17 @@ describe("the webhook's URL", () => {
 
   it.each(["saved", "off"])("is gone from the stored delivery errors of 0.3.4 after the start (webhook %s)", async (webhook) => {
     if (webhook === "saved") await saveAsIn034();
-    const [quoting, other] = [randomUUID(), randomUUID()];
+    const [quoting, cut, other, today] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
+    const refused = "Request to https://hooks.example.org failed: Request cannot be constructed from a URL that includes credentials: https://";
     await db.insert(webhookSync).values([
-      { noteId: quoting, action: "publish", lastError: "Request to https://hooks.example.org failed: Request cannot be constructed from a URL that includes credentials: https://user:old-token@hooks.example.org/cut-off" },
+      { noteId: quoting, action: "publish", lastError: `${refused}user:old-token@hooks.example.org/path` },
+      { noteId: cut, action: "publish", lastError: `${refused}user:old-tok` },
       { noteId: other, action: "publish", lastError: "The webhook answered HTTP 500" },
+      { noteId: today, action: "publish", lastError: `${refused}hooks.example.org` },
     ]);
     expect(await sealWebhookUrl(db, key)).toBe(webhook === "saved");
     const errors = await db.select({ noteId: webhookSync.noteId, lastError: webhookSync.lastError }).from(webhookSync);
-    expect(new Map(errors.map((row) => [row.noteId, row.lastError]))).toEqual(new Map([[quoting, null], [other, "The webhook answered HTTP 500"]]));
+    expect(new Map(errors.map((row) => [row.noteId, row.lastError]))).toEqual(new Map([[quoting, null], [cut, null], [other, "The webhook answered HTTP 500"], [today, `${refused}hooks.example.org`]]));
   });
 
   it("is off without a webhook, also after the start", async () => {

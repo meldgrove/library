@@ -1,4 +1,4 @@
-import { eq, like } from "drizzle-orm";
+import { and, eq, like, sql } from "drizzle-orm";
 import { recordAudit } from "@/lib/audit";
 import { canAdminister } from "@/lib/auth/roles";
 import { CommandError, type FieldErrors } from "@/lib/commands";
@@ -210,8 +210,11 @@ export async function applySetting(
 export async function sealWebhookUrl(db: Database, key: Buffer): Promise<boolean> {
   return db.transaction(async (tx) => {
     const stored = await lockStored(tx, "webhook");
-    // Their delivery errors quote a URL with user info, which fetch refuses.
-    await tx.update(webhookSync).set({ lastError: null }).where(like(webhookSync.lastError, "%a URL that includes credentials%"));
+    // Their delivery errors quote a URL with user info, which fetch refuses; today's name only the server.
+    await tx
+      .update(webhookSync)
+      .set({ lastError: null })
+      .where(and(like(webhookSync.lastError, "%a URL that includes credentials%"), sql`${webhookSync.lastError} !~ '^Request to (\\S+) failed: .* credentials: \\1$'`));
     if (typeof stored.url !== "string") return false;
     const url: SealedSecret = { sealed: sealSecret(key, "webhook.url", stored.url), hint: urlHint(stored.url) };
     await tx.update(appSetting).set({ value: { ...stored, url } }).where(eq(appSetting.key, rowKey("webhook")));
