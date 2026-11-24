@@ -73,7 +73,7 @@ describe("cli settings", () => {
       "slack         set         bot token …abcd, no signing secret (the Slack bot is off)",
       "digest        set         email all-staff@example.org",
       "webhook       set         https://hooks.example.org/library, secret …6789",
-      "email-intake  set         imaps://intake:****@imap.example.org:993, mailbox INBOX, domains example.org",
+      "email-intake  set         imaps://…@imap.example.org:993, mailbox INBOX, domains example.org",
     ]);
     const rows = JSON.parse((await cli(["settings", "list", "--json"])).out) as { name: string; state: string; oldVariables: unknown[] }[];
     expect(rows.map(({ name, state, oldVariables }) => [name, state, oldVariables])).toEqual(SETTING_NAMES.map((name) => [name, "set", []]));

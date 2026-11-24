@@ -6,7 +6,7 @@ import { logger } from "@/lib/logger";
 import type { NotificationChannels } from "@/lib/notifications/types";
 import { environment } from "./actor";
 import { emptyFields, parseBody, SETTINGS, SETTINGS_IN_ORDER, type SettingName, type StoredFields } from "./definitions";
-import { applySetting, readStored, type SettingValues } from "./service";
+import { applySetting, lockStored, type SettingValues } from "./service";
 
 /*
  * The variables that held these settings up to 0.3.2. A process that sees one
@@ -135,7 +135,8 @@ export async function importLegacySettings(db: Database, key: Buffer, env: Env, 
     for (const definition of SETTINGS_IN_ORDER) {
       const pending = (present[definition.name] ?? []).filter((variable) => !ledger[variable]);
       if (pending.length === 0) continue;
-      const stored = await readStored(tx, definition.name);
+      // Locked until the import commits: a save on the page waits, and is not overwritten.
+      const stored = await lockStored(tx, definition.name);
       const empty = (field: string) => {
         const current = stored[field];
         return current === null || current === undefined || (Array.isArray(current) && current.length === 0);

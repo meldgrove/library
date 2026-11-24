@@ -2,7 +2,7 @@ import { eq, like } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { CommandError } from "@/lib/commands";
 import { appSetting, auditEvent } from "@/lib/db/schema";
-import type { EmailTransport } from "@/lib/notifications/transports";
+import { DeliveryError, type EmailTransport } from "@/lib/notifications/transports";
 import { createWorkerIntegrations } from "@/workers/integrations";
 import { connectTestDatabase } from "../../../tests/integration/db";
 import { seedDirectory } from "../../../tests/integration/seed";
@@ -56,7 +56,7 @@ describe("saving a setting", () => {
       model: "claude-opus-5-5",
       baseUrl: null,
     });
-    expect(await showSetting(db, "email", key)).toMatchObject({ smtpUrl: { saved: true, hint: "smtps://library:****@mail.example.org:465" } });
+    expect(await showSetting(db, "email", key)).toMatchObject({ smtpUrl: { saved: true, hint: "smtps://…@mail.example.org:465" } });
     const list = await listSettings(db, key);
     expect(list.map(({ name }) => name)).toEqual(["ai", "email", "slack", "digest", "webhook", "email-intake"]);
     expect(list.every(({ state }) => state === "set")).toBe(true);
@@ -70,6 +70,11 @@ describe("saving a setting", () => {
     expect((error as CommandError).message).toBe("The webhook setting was not saved. Check secret.");
     expect(await showSetting(db, "webhook", key)).toMatchObject({ state: "not set", url: null });
     expect(await audits()).toEqual([]);
+  });
+
+  it("is for admins only, unless the operator or the import saves", async () => {
+    await expect(applySetting(db, key, "digest", BODIES.digest, seed.actors.dan)).rejects.toMatchObject({ code: "forbidden" });
+    expect(await showSetting(db, "digest", key)).toMatchObject({ state: "not set" });
   });
 
   it("keeps a secret that the body leaves out, and removes it with null", async () => {
@@ -168,6 +173,26 @@ describe("old variables", () => {
     expect(await showSetting(db, "slack", key)).toMatchObject({ state: "set", botToken: { hint: "…wxyz" }, signingSecret: { saved: true } });
   });
 
+  it("never overwrite a save that commits while the import runs", async () => {
+    let saved!: () => void;
+    let release!: () => void;
+    const savedNow = new Promise<void>((resolve) => (saved = resolve));
+    const released = new Promise<void>((resolve) => (release = resolve));
+    // An admin's save, not yet committed.
+    const save = db.transaction(async (tx) => {
+      await applySetting(tx, key, "webhook", { url: "https://receiver.example.org/hook", secret: "page-secret-0123456789" }, seed.actors.amy);
+      saved();
+      await released;
+    });
+    await savedNow;
+    const imported = importLegacySettings(db, key, { WEBHOOK_URL: OLD.WEBHOOK_URL, WEBHOOK_SECRET: OLD.WEBHOOK_SECRET }, "worker");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    release();
+    await save;
+    expect(await imported).toEqual({ imported: [], refused: [] });
+    expect(await showSetting(db, "webhook", key)).toMatchObject({ url: "https://receiver.example.org/hook", secret: { hint: "…6789" } });
+  });
+
   it("are imported once when two processes start together", async () => {
     await Promise.all([importLegacySettings(db, key, OLD, "web"), importLegacySettings(db, key, OLD, "worker"), importLegacySettings(db, key, OLD, "migrate")]);
     expect(await audits()).toHaveLength(6);
@@ -225,6 +250,16 @@ describe("tests", () => {
     const sent: unknown[] = [];
     const emailTransport = (): EmailTransport => ({ mode: "live", kind: "smtp", send: async (email) => void sent.push(email) });
     await expect(testSetting(db, key, "email", {}, { emailTransport })).rejects.toBeInstanceOf(CommandError);
+    // A server answer that repeats the password does not reach the page or the command.
+    const echoing = (): EmailTransport => ({
+      mode: "live",
+      kind: "smtp",
+      send: async () => {
+        throw new DeliveryError("SMTP 535: authentication failed for library / smtp-password-7777");
+      },
+    });
+    const failed = await testSetting(db, key, "email", { to: "ada@example.org" }, { emailTransport: echoing });
+    expect(failed).toEqual({ ok: false, message: "The email was not sent. SMTP 535: authentication failed for **** / ****" });
     expect(await testSetting(db, key, "email", { to: "ada@example.org" }, { emailTransport })).toEqual({ ok: true, message: "Sent a test email to ada@example.org with SMTP." });
     expect(sent).toEqual([expect.objectContaining({ to: "ada@example.org", subject: "Test email from Meldgrove Library" })]);
   });

@@ -53,7 +53,7 @@ describe("email", () => {
     expect(apply("email", {}, { provider: "smtp" }).errors).toEqual({ smtpUrl: "is required for SMTP", from: "is required to send email" });
     const smtp = apply("email", {}, { provider: "smtp", smtpUrl: "smtps://u:p@mail.example.org:465", from: "Library@Example.org" });
     expect(smtp.errors).toEqual({});
-    expect(smtp.next).toMatchObject({ provider: "smtp", smtpUrl: sealed("smtps://u:****@mail.example.org:465"), from: "library@example.org" });
+    expect(smtp.next).toMatchObject({ provider: "smtp", smtpUrl: sealed("smtps://…@mail.example.org:465"), from: "library@example.org" });
     const switched = apply("email", smtp.next, { provider: "mailersend", mailersendToken: "mlsn.0123456789abcdef" });
     expect(switched.errors).toEqual({});
     expect(switched.next.smtpUrl).toBeNull();
@@ -87,6 +87,8 @@ describe("webhook and email intake", () => {
     expect(apply("webhook", {}, { url: "https://hooks.example.org/library" }).errors).toEqual({ secret: "is required with a URL" });
     expect(apply("webhook", {}, { url: "https://hooks.example.org/library", secret: "short" }).errors.secret).toBe("must be at least 16 characters");
     expect(apply("webhook", { url: "https://hooks.example.org", secret: sealed("…") }, { url: null }).next.secret).toBeNull();
+    // The receiver's URL as given: requests are not redirected.
+    expect(apply("webhook", {}, { url: "https://hooks.example.org/events/", secret: "0123456789abcdef" }).next.url).toBe("https://hooks.example.org/events/");
     expect(apply("email-intake", {}, { imapUrl: "imaps://u:p@imap.example.org" }).errors.domains).toMatch(/is required/);
     expect(apply("email-intake", {}, { imapUrl: "imaps://u:p@imap.example.org", domains: ["@Example.org", "staff.example.org"] }).next.domains).toEqual([
       "example.org",

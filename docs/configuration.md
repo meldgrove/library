@@ -111,7 +111,7 @@ Set under **Admin → Integrations**, or with `cli settings apply <name>`
 same checks and write the same audit entry. Secrets (keys, tokens,
 passwords) are sealed with a key derived from `BETTER_AUTH_SECRET` and never
 shown again: the page and the command show at most their last four
-characters, or a URL without its password. The web process and the worker
+characters, or only the scheme, host and port of a URL. The web process and the worker
 read the settings at each use, so a change applies within a minute, without
 a restart. A setting that is off does nothing.
 

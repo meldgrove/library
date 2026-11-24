@@ -180,7 +180,7 @@ In a running container, such as a terminal on Coolify, `cli` is on the
 
 | Command | What it does |
 |---|---|
-| `cli settings list [--json]` | Every setting: set, not set or incomplete, with hints (last characters, URLs without passwords), and the old variables still set |
+| `cli settings list [--json]` | Every setting: set, not set or incomplete, with hints (last characters; scheme, host and port of URLs), and the old variables still set |
 | `cli settings show <name>` | The setting as JSON, as the admin page reads it |
 | `cli settings apply <name>` | Reads the JSON body from stdin, the one the admin page sends, and saves it with the page's checks. Prints what `show` prints |
 | `cli settings test <name>` | What the page's test button does: `ai`, `email` (`--to <address>`), `slack`, `email-intake` |

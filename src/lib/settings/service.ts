@@ -1,5 +1,6 @@
 import { eq, like } from "drizzle-orm";
 import { recordAudit } from "@/lib/audit";
+import { canAdminister } from "@/lib/auth/roles";
 import { CommandError, type FieldErrors } from "@/lib/commands";
 import type { Database, Transaction } from "@/lib/db/client";
 import { appSetting } from "@/lib/db/schema";
@@ -30,6 +31,16 @@ const rowKey = (name: SettingName) => `integration.${name}`;
 /** The setting as stored, with every field (empty ones as null or []). */
 export async function readStored(db: Database | Transaction, name: SettingName): Promise<StoredFields> {
   const [row] = await db.select({ value: appSetting.value }).from(appSetting).where(eq(appSetting.key, rowKey(name)));
+  return { ...emptyFields(SETTINGS[name]), ...((row?.value as StoredFields | undefined) ?? {}) };
+}
+
+/**
+ * The setting as stored, with its row locked until the transaction ends, so
+ * no other save changes it in between (created empty when missing).
+ */
+export async function lockStored(tx: Transaction, name: SettingName): Promise<StoredFields> {
+  await tx.insert(appSetting).values({ key: rowKey(name), value: {} }).onConflictDoNothing();
+  const [row] = await tx.select({ value: appSetting.value }).from(appSetting).where(eq(appSetting.key, rowKey(name))).for("update");
   return { ...emptyFields(SETTINGS[name]), ...((row?.value as StoredFields | undefined) ?? {}) };
 }
 
@@ -159,6 +170,7 @@ export async function applySetting(
   options: ApplyOptions = {},
 ): Promise<Record<string, unknown>> {
   const definition = SETTINGS[name];
+  if (!isOperator(actor) && !isEnvironment(actor) && !canAdminister(actor.role)) throw new CommandError("forbidden", "Only admins change the integrations.");
   const { changes, errors } = parseBody(definition, body);
   if (Object.keys(errors).length > 0) throw refused(definition, errors);
   if (!key) {
@@ -167,9 +179,7 @@ export async function applySetting(
 
   return db.transaction(async (tx) => {
     // One save at a time per setting: the row is locked from read to write.
-    await tx.insert(appSetting).values({ key: rowKey(name), value: {} }).onConflictDoNothing();
-    const [row] = await tx.select({ value: appSetting.value }).from(appSetting).where(eq(appSetting.key, rowKey(name))).for("update");
-    const previous: StoredFields = { ...emptyFields(definition), ...((row?.value as StoredFields | undefined) ?? {}) };
+    const previous = await lockStored(tx, name);
     const next: StoredFields = { ...previous };
     for (const [field, change] of changes) {
       const spec = definition.fields[field]!;

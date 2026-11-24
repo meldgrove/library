@@ -25,8 +25,9 @@ describe("hints", () => {
     expect(lastCharactersHint("short-secret")).toBe("…");
   });
 
-  it("hide the password of a URL", () => {
-    expect(urlHint("smtps://library:p%40ss@mail.example.org:465")).toBe("smtps://library:****@mail.example.org:465");
+  it("show only the scheme, host and port of a URL: a user name can be a token too", () => {
+    expect(urlHint("smtps://server-token-123:server-token-123@smtp.example.org:587?pool=true")).toBe("smtps://…@smtp.example.org:587");
+    expect(urlHint("smtp://mail.example.org:25")).toBe("smtp://mail.example.org:25");
     expect(urlHint("not a url")).toBe("…");
   });
 });

@@ -67,12 +67,14 @@ export function lastCharactersHint(value: string): string {
   return value.length >= 16 ? `…${value.slice(-4)}` : "…";
 }
 
-/** A URL with its password hidden: "smtps://library:****@mail.example.org:465". */
+/**
+ * A URL without its credentials, path and query: "smtps://…@mail.example.org:465".
+ * Some providers put a token in the user name, or options in the query.
+ */
 export function urlHint(value: string): string {
   try {
     const url = new URL(value);
-    if (url.password) url.password = "****";
-    return url.toString().replace(/\/$/, "");
+    return `${url.protocol}//${url.username || url.password ? "…@" : ""}${url.host}`;
   } catch {
     return "…";
   }

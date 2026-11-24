@@ -30,7 +30,7 @@ export type StoredFields = Record<string, string | string[] | SealedSecret | nul
 /** What the page and `show` get for a secret. */
 export interface SecretView {
   saved: boolean;
-  /** The last characters, or a URL without its password; null when nothing is saved. */
+  /** The last characters, or the scheme, host and port of a URL; null when nothing is saved. */
   hint: string | null;
 }
 
@@ -66,7 +66,9 @@ const text = (value: unknown): string | null => (typeof value === "string" && va
 const secretHint = (value: unknown): string | null =>
   value && typeof value === "object" && "hint" in value ? (value as SealedSecret).hint : null;
 
-const httpUrl = z.url({ protocol: /^https?$/, error: "must be an http:// or https:// URL" }).transform((url) => url.replace(/\/+$/, ""));
+const httpUrl = z.url({ protocol: /^https?$/, error: "must be an http:// or https:// URL" });
+/** A base URL that paths are appended to: without a trailing slash. */
+const baseUrl = httpUrl.transform((url) => url.replace(/\/+$/, ""));
 const email = z.email({ error: "must be an email address" }).transform((address) => address.toLowerCase());
 const plainText = (max: number) => z.string().max(max, `must be at most ${max} characters`);
 const DOMAIN = /^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
@@ -230,7 +232,7 @@ const ai: SettingDefinition = {
     provider: { kind: "choice", label: "Provider", options: AI_PROVIDERS },
     apiKey: { kind: "secret", label: "API key", schema: z.string().regex(/^\S+$/, "must be an API key without spaces"), hint: lastCharactersHint },
     model: { kind: "text", label: "Model", schema: z.string().regex(/^\S{1,200}$/, "must be a model name such as claude-opus-5-5") },
-    baseUrl: { kind: "text", label: "Base URL", schema: httpUrl },
+    baseUrl: { kind: "text", label: "Base URL", schema: baseUrl },
   },
   finish(previous, next, changes) {
     const errors: FieldErrors = {};
