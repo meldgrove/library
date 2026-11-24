@@ -85,3 +85,9 @@ Next.js 16 (App Router, Server Actions), TypeScript, PostgreSQL 18 with
 Drizzle ORM, Better Auth, pg-boss, Tailwind CSS with shadcn/ui (from the
 shared [@meldgrove/ui](https://github.com/meldgrove/ui)), Vitest, and
 Playwright.
+
+## License
+
+Copyright 2026 Meldgrove
+
+Licensed under the [Apache License 2.0](LICENSE).
