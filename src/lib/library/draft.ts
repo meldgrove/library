@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
-import type { AiConfig } from "@/lib/config";
+import type { AiValues } from "@/lib/settings/runtime";
 import { DRAFT_TEXT_LIMIT, NOTE_LIMITS, VISIBILITIES, type ListEntry, type NoteQuote, type Visibility } from "./constants";
 
 /*
@@ -10,6 +10,12 @@ import { DRAFT_TEXT_LIMIT, NOTE_LIMITS, VISIBILITIES, type ListEntry, type NoteQ
  * that every quote really is in the source. An invalid answer is retried
  * once, then the upload is parked for a maintainer. Nothing is guessed.
  */
+
+/** The AI model's settings: the `ai` setting (Admin › Integrations) and the limits from the environment. */
+export type DraftModelConfig =
+  | { AI_PROVIDER: "fake" }
+  | { AI_PROVIDER: "openai-compatible"; AI_BASE_URL: string; AI_API_KEY: string; AI_MODEL: string; AI_TIMEOUT_MS: number }
+  | { AI_PROVIDER: "anthropic"; AI_API_KEY: string; AI_MODEL: string; AI_TIMEOUT_MS: number };
 
 export interface ChatMessage {
   role: "system" | "user";
@@ -246,7 +252,7 @@ export class DraftProviderError extends Error {
 
 /** Any OpenAI-compatible chat completions API: Mistral, OpenAI, Azure OpenAI, or a self-hosted model. */
 export function createOpenAiCompatibleModel(
-  config: Extract<AiConfig, { AI_PROVIDER: "openai-compatible" }>,
+  config: Extract<DraftModelConfig, { AI_PROVIDER: "openai-compatible" }>,
   fetchImpl: typeof fetch = fetch,
 ): DraftModel {
   return {
@@ -326,7 +332,7 @@ const SERVER_FALLBACK_MODELS = /^claude-(fable-5|opus-5|sonnet-5-5)/;
  * any value below 1), so none is sent.
  */
 export function createAnthropicModel(
-  config: Extract<AiConfig, { AI_PROVIDER: "anthropic" }>,
+  config: Extract<DraftModelConfig, { AI_PROVIDER: "anthropic" }>,
   client: Anthropic = new Anthropic({ apiKey: config.AI_API_KEY, timeout: config.AI_TIMEOUT_MS }),
 ): DraftModel {
   // On a decline, the API runs the same request on a fallback model in the same call.
@@ -405,7 +411,7 @@ export function createFakeModel(): DraftModel {
   };
 }
 
-export function createDraftModel(config: AiConfig): DraftModel {
+export function createDraftModel(config: DraftModelConfig): DraftModel {
   switch (config.AI_PROVIDER) {
     case "anthropic":
       return createAnthropicModel(config);
@@ -414,4 +420,66 @@ export function createDraftModel(config: AiConfig): DraftModel {
     case "fake":
       return createFakeModel();
   }
+}
+
+/**
+ * The model of the `ai` setting, with the limits from the environment; the
+ * fake one when AI_PROVIDER=fake (development and tests). Null while no
+ * provider is set up.
+ */
+export function draftModelFromSettings(ai: AiValues | null, limits: { AI_FAKE: boolean; AI_TIMEOUT_MS: number }): DraftModel | null {
+  if (limits.AI_FAKE) return createFakeModel();
+  if (!ai) return null;
+  return ai.provider === "anthropic"
+    ? createAnthropicModel({ AI_PROVIDER: "anthropic", AI_API_KEY: ai.apiKey, AI_MODEL: ai.model, AI_TIMEOUT_MS: limits.AI_TIMEOUT_MS })
+    : createOpenAiCompatibleModel({ AI_PROVIDER: "openai-compatible", AI_BASE_URL: ai.baseUrl!, AI_API_KEY: ai.apiKey, AI_MODEL: ai.model, AI_TIMEOUT_MS: limits.AI_TIMEOUT_MS });
+}
+
+/** What the test button of the AI model reports. */
+export interface ModelCheck {
+  ok: boolean;
+  message: string;
+}
+
+/** Why a provider refused, in the words of the admin page. Never the provider's own text: it can quote the request. */
+function refusal(status: number | undefined, model: string): string {
+  if (status === undefined) return "The AI provider could not be reached. Check the base URL and the server's network.";
+  if (status === 401 || status === 403) return `The AI provider refused the API key (HTTP ${status}).`;
+  if (status === 404) return `The AI provider does not know the model ${model} (HTTP 404), or the base URL is wrong.`;
+  return `The AI provider answered HTTP ${status}.`;
+}
+
+/**
+ * Checks the key and the model with the smallest call each provider allows,
+ * and drafts nothing: Anthropic's model lookup (no tokens), or a chat
+ * completion of at most one token for an OpenAI-compatible API.
+ */
+export async function checkDraftModel(
+  config: Exclude<DraftModelConfig, { AI_PROVIDER: "fake" }>,
+  deps: { fetchImpl?: typeof fetch; anthropic?: Pick<Anthropic, "models"> } = {},
+): Promise<ModelCheck> {
+  if (config.AI_PROVIDER === "anthropic") {
+    const client = deps.anthropic ?? new Anthropic({ apiKey: config.AI_API_KEY, timeout: Math.min(config.AI_TIMEOUT_MS, 30_000), maxRetries: 0 });
+    try {
+      const info = await client.models.retrieve(config.AI_MODEL);
+      return { ok: true, message: `Anthropic accepts the API key and knows the model ${info.id}.` };
+    } catch (error) {
+      return { ok: false, message: refusal(error instanceof Anthropic.APIError ? error.status : undefined, config.AI_MODEL) };
+    }
+  }
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  let response: Response;
+  try {
+    response = await fetchImpl(`${config.AI_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${config.AI_API_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: config.AI_MODEL, messages: [{ role: "user", content: "Answer with OK." }], max_tokens: 1 }),
+      signal: AbortSignal.timeout(Math.min(config.AI_TIMEOUT_MS, 30_000)),
+    });
+  } catch {
+    return { ok: false, message: refusal(undefined, config.AI_MODEL) };
+  }
+  await response.body?.cancel().catch(() => undefined);
+  if (!response.ok) return { ok: false, message: refusal(response.status, config.AI_MODEL) };
+  return { ok: true, message: `The API at ${new URL(config.AI_BASE_URL).host} accepts the API key and answers with the model ${config.AI_MODEL}.` };
 }

@@ -1,8 +1,16 @@
 # Configuration
 
-The library reads its configuration from environment variables. Blank values
+The library reads from environment variables only what it needs before it
+can reach its database, and limits that admins must not change. Blank values
 count as unset. Every process validates what it needs at startup and stops
 with a list of missing or invalid variables.
+
+The outside services (the AI model, email, Slack, the weekly digest, the
+webhook, and the intake mailbox) are settings in the database. Admins set
+them under **Admin → Integrations**; operators set the same settings on the
+server with `cli settings`
+([deployment](deployment.md#settings-from-the-command-line)). See
+[Integrations](#integrations).
 
 Three processes run from one image (see [deployment](deployment.md)):
 `migrate`, `web`, and `worker`. The tables below say which process needs a
@@ -14,13 +22,12 @@ variable.
 |---|---|---|
 | `DATABASE_URL` | all | `postgres://user:password@host:5432/library` |
 | `LIBRARY_BASE_URL` | web, worker | The public URL, e.g. `https://library.example.org`. Used for login redirects and links in messages |
-| `BETTER_AUTH_SECRET` | web | At least 32 characters: `openssl rand -base64 32`. Signs session cookies |
+| `BETTER_AUTH_SECRET` | web, worker, migrate | At least 32 characters: `openssl rand -base64 32`. Signs session cookies, and seals the secrets of the [integrations](#integrations) in the database. A new value means entering those secrets again |
 | `OIDC_ISSUER` | web | Issuer URL of the OpenID Connect provider, e.g. `https://auth.example.org/realms/acme` |
 | `OIDC_CLIENT_ID` | web | Client ID registered for the library |
 | `OIDC_CLIENT_SECRET` | web | Its client secret |
 | `DIRECTORY` and its settings | web, worker | Who has access; see [directory](#directory-who-has-access) |
 | `STORAGE_DIR` or the `S3_*` variables | web, worker | Where originals are kept; with `compose.yaml`, only for files. See [storage](#storage-web-worker) |
-| `AI_PROVIDER`, `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` | worker | The AI model that drafts notes; see [AI model](#ai-model-worker) |
 
 With Docker Compose, `LIBRARY_VERSION` selects the release image
 ([deployment](deployment.md#docker-compose)), and `LIBRARY_PORT` (default
@@ -87,45 +94,6 @@ text of a PDF or Word file behind a link.
 | `S3_FORCE_PATH_STYLE` | `false` | `true` for services that need the bucket in the path (MinIO, RustFS) |
 | `UPLOAD_MAX_MB` | `50` | Largest file, in megabytes, for uploads and downloaded links |
 
-## AI model (worker)
-
-The worker sends the extracted text of each upload to one AI model, which
-returns the draft as JSON. The model gets no tools. Two kinds of provider
-work:
-
-- **Anthropic** (`AI_PROVIDER=anthropic`): the Claude API through Anthropic's
-  SDK. The library asks for the answer's JSON schema (structured outputs). On
-  models that support it (Claude Fable 5, Claude Opus 5, and Claude Sonnet 5.5
-  models), a request the model declines runs again on a fallback model in the
-  same call.
-- **OpenAI-compatible** (`AI_PROVIDER=openai-compatible`): any API that speaks
-  the OpenAI chat completions format and supports
-  `response_format: {"type": "json_object"}`, for example Mistral, OpenAI,
-  Azure OpenAI, or a self-hosted model behind an OpenAI-compatible server.
-  Anthropic's OpenAI-compatible endpoint refuses this request; use
-  `anthropic` for Claude.
-
-Most sources name their authors, so choose a provider that your organization
-allows for personal data.
-
-| Variable | Default | Value |
-|---|---|---|
-| `AI_PROVIDER` | `fake` outside production, required in production (`openai-compatible` in `compose.yaml`) | `anthropic`, `openai-compatible`, or `fake`, which drafts from the text without a model (development and tests only) |
-| `AI_BASE_URL` | required with `openai-compatible` | Base URL up to and including `/v1`, e.g. `https://api.mistral.ai/v1` or `https://api.openai.com/v1` |
-| `AI_API_KEY` | required | API key |
-| `AI_MODEL` | required | Model name, e.g. `claude-opus-5-5` (Anthropic) or `mistral-medium-latest` |
-| `AI_DAILY_LIMIT` | `200` | Drafts per day across all uploads; the rest waits for the next day |
-| `AI_TIMEOUT_MS` | `120000` | How long to wait for one answer |
-
-## Webhook (worker)
-
-| Variable | Default | Value |
-|---|---|---|
-| `WEBHOOK_URL` | none (off) | HTTPS endpoint that receives published notes |
-| `WEBHOOK_SECRET` | none | At least 16 characters; required with `WEBHOOK_URL`. Signs every request: `openssl rand -hex 32` |
-
-See [webhook](webhooks.md) for the payload and the signature.
-
 ## Text recognition (worker)
 
 PDFs without a text layer (scans) need OCR. The Docker image includes
@@ -136,38 +104,108 @@ PDFs without a text layer (scans) need OCR. The Docker image includes
 | `OCR_COMMAND` | none (off; `ocrmypdf` in `compose.yaml`) | `ocrmypdf`, or another command that takes its arguments. Without it, scans are parked for a maintainer |
 | `OCR_LANGUAGES` | `deu+eng` | Tesseract language codes, joined with `+` |
 
-## Notifications (worker)
+## Integrations
 
-Email and Slack are each optional. Maintainers and admins get emails about uploads on hold,
-people who follow tags get a weekly email, and uploaders hear about their
-uploads by Slack direct message. When one channel is off, or cannot reach a
-person (no Slack account, no email address), the message goes out on the
-other. So it does after an error that trying again cannot fix, such as an
-invalid token, a missing Slack scope, or a rejected address. Other errors,
-such as an outage or a rate limit, are retried after 1, 5, 15, and 60
-minutes; the fifth and last attempt tries the other channel too.
+Set under **Admin → Integrations**, or with `cli settings apply <name>`
+([deployment](deployment.md#settings-from-the-command-line)). Both run the
+same checks and write the same audit entry. Secrets (keys, tokens,
+passwords) are sealed with a key derived from `BETTER_AUTH_SECRET` and never
+shown again: the page and the command show at most their last four
+characters, or a URL without its password. The web process and the worker
+read the settings at each use, so a change applies within a minute, without
+a restart. A setting that is off does nothing.
 
-Email goes through an SMTP server or the MailerSend API, not both.
+| Setting | Name | What it does |
+|---|---|---|
+| [AI model](#ai-model) | `ai` | Drafts a note for each upload. Until it is set up, uploads wait at the draft |
+| [Email](#email) | `email` | Sends emails: SMTP or MailerSend |
+| [Slack](#slack) | `slack` | Sends Slack messages, and runs the [Slack bot](#slack-bot) |
+| [Weekly digest](#weekly-digest) | `digest` | Where the digest of notes for everyone goes |
+| [Webhook](#webhook) | `webhook` | Sends published notes to another system |
+| [Email intake](#email-intake) | `email-intake` | Reads a mailbox that people forward sources to |
+
+### AI model
+
+The worker sends the extracted text of each upload to one AI model, which
+returns the draft as JSON. The model gets no tools. Two kinds of provider
+work:
+
+- **Anthropic** (`"provider": "anthropic"`): the Claude API through
+  Anthropic's SDK. The library asks for the answer's JSON schema (structured
+  outputs). On models that support it (Claude Fable 5, Claude Opus 5, and
+  Claude Sonnet 5.5 models), a request the model declines runs again on a
+  fallback model in the same call.
+- **OpenAI-compatible** (`"provider": "openai-compatible"`): any API that
+  speaks the OpenAI chat completions format and supports
+  `response_format: {"type": "json_object"}`, for example Mistral, OpenAI,
+  Azure OpenAI, or a self-hosted model behind an OpenAI-compatible server.
+  Anthropic's OpenAI-compatible endpoint refuses this request; use
+  `anthropic` for Claude.
+
+Most sources name their authors, so choose a provider that your organization
+allows for personal data.
+
+| Field | Value |
+|---|---|
+| `provider` | `anthropic` or `openai-compatible`; `null` switches drafting off and removes the key |
+| `apiKey` | API key (secret). A new provider needs a new key |
+| `model` | Model name, e.g. `claude-opus-5-5` (Anthropic) or `mistral-medium-latest` |
+| `baseUrl` | With `openai-compatible`: the base URL up to and including `/v1`, e.g. `https://api.mistral.ai/v1` or `https://api.openai.com/v1` |
+
+The test button (and `cli settings test ai`) checks the key and the model
+with the smallest call the provider allows, and drafts nothing: Anthropic's
+model lookup, or a chat completion of one token.
+
+The limits stay in the environment, so that admins cannot raise them:
 
 | Variable | Default | Value |
 |---|---|---|
-| `SMTP_URL` | none | `smtp://user:password@host:587` (STARTTLS) or `smtps://user:password@host:465`. Percent-encode special characters in the password |
-| `MAILERSEND_API_TOKEN` | none | Instead of SMTP: a MailerSend API token with email sending access |
-| `MAIL_FROM` | none | Sender address; required with SMTP or MailerSend |
-| `MAIL_FROM_NAME` | `Meldgrove Library` | Sender name |
-| `SLACK_BOT_TOKEN` | none | Bot token (`xoxb-…`) of a Slack app with the scopes `chat:write`, `users:read`, and `users:read.email` (the [Slack bot](#slack-bot-web-worker) needs more) |
-| `NOTIFICATION_TRANSPORT` | `live` in production, otherwise `console` | `console` only logs messages instead of sending them |
+| `AI_DAILY_LIMIT` | `200` | Drafts per day across all uploads; the rest waits for the next day |
+| `AI_TIMEOUT_MS` | `120000` | How long to wait for one answer |
+| `AI_PROVIDER` | none | Only `fake`: drafts from the text without a model and ignores the setting (development and tests) |
 
-## Slack bot (web, worker)
+### Email
 
-Optional, and off until `SLACK_SIGNING_SECRET` is set. People send the Slack
-app a direct message with a link or a file and one line on why; the worker
-adds them as uploads and answers in the same conversation.
+Maintainers and admins get emails about uploads on hold, people who follow
+tags get a weekly email, and uploaders hear about their uploads by Slack
+direct message. When one channel is off, or cannot reach a person (no Slack
+account, no email address), the message goes out on the other. So it does
+after an error that trying again cannot fix, such as an invalid token, a
+missing Slack scope, or a rejected address. Other errors, such as an outage
+or a rate limit, are retried after 1, 5, 15, and 60 minutes; the fifth and
+last attempt tries the other channel too.
 
-| Variable | Process | Value |
-|---|---|---|
-| `SLACK_SIGNING_SECRET` | web | The app's signing secret (Slack: **Basic Information → App Credentials**). The web process accepts only events signed with it |
-| `SLACK_BOT_TOKEN` | worker | The bot token, as for notifications. The worker handles messages only with it |
+| Field | Value |
+|---|---|
+| `provider` | `smtp` or `mailersend`; `null` switches email off and removes the secret. Only the provider in use keeps its secret |
+| `smtpUrl` | With `smtp` (secret): `smtp://user:password@host:587` (STARTTLS) or `smtps://user:password@host:465`. Percent-encode special characters in the password |
+| `mailersendToken` | With `mailersend` (secret): a MailerSend API token with email sending access |
+| `from` | Sender address; required |
+| `fromName` | Sender name; `Meldgrove Library` when empty |
+
+The test sends one email to an address the admin enters (`cli settings test
+email --to <address>`).
+
+`NOTIFICATION_TRANSPORT` (environment, default `live` in production,
+otherwise `console`): `console` only logs Slack messages and emails instead
+of sending them.
+
+### Slack
+
+| Field | Value |
+|---|---|
+| `botToken` | Bot token (`xoxb-…`, secret) of a Slack app with the scopes `chat:write`, `users:read`, and `users:read.email`; the [Slack bot](#slack-bot) needs more |
+| `signingSecret` | The app's signing secret (secret; Slack: **Basic Information → App Credentials**). Only for the Slack bot: the web process accepts only events signed with it |
+
+The test asks Slack who the bot token belongs to (`auth.test`) and sends
+nothing.
+
+### Slack bot
+
+Optional, and off until the Slack setting has a signing secret. People send
+the Slack app a direct message with a link or a file and one line on why;
+the worker adds them as uploads and answers in the same conversation with
+the bot token.
 
 Set up the Slack app:
 
@@ -176,49 +214,83 @@ Set up the Slack app:
   adding scopes.
 - **Event Subscriptions**: on, with the request URL
   `<LIBRARY_BASE_URL>/api/slack/events` and the bot event `message.im`. Slack
-  checks the URL when it is saved; the web process must run with the signing
-  secret by then.
+  checks the URL when it is saved; save the signing secret first.
 - **App Home**: under **Show Tabs**, turn on the **Messages Tab** and allow
   users to send messages from it.
 
 People are found by the email address of their Slack account, which must be
 their `work_email` in the library. Files count against `UPLOAD_MAX_MB`.
 
-## Email intake (worker)
+### Weekly digest
 
-Optional, and off until `EMAIL_INTAKE_IMAP_URL` is set. People send or
-forward links and files to one mailbox, with one line on why as the subject;
-the worker reads it every 2 minutes. Use a mailbox for the library alone: the
+Mondays at 09:00 in the server's time zone, the worker sends the notes
+published in the last 7 days. Admins set a Slack channel for each team under
+**Admin → Teams**; everyone can follow tags under **Settings** and gets their
+own email. This setting says where notes for everyone go. Add the library's
+Slack app to each Slack channel (or give it the `chat:write.public` scope for
+public channels). A team's channel gets notes for the team too, so choose
+one only the team is in.
+
+| Field | Value |
+|---|---|
+| `slackChannelId` | Channel ID such as `C0123456789` (Slack: the channel's details, at the bottom); not the channel's name. Needs [Slack](#slack) |
+| `emailTo` | An address, such as a mailing list, that gets the digest by email. Needs [email](#email) |
+
+### Webhook
+
+| Field | Value |
+|---|---|
+| `url` | HTTPS endpoint that receives published notes; `null` switches the webhook off and removes the secret |
+| `secret` | At least 16 characters (secret); required with a URL. Signs every request: `openssl rand -hex 32` |
+
+See [webhook](webhooks.md) for the payload and the signature.
+
+### Email intake
+
+Optional, and off until the setting has an IMAP URL. People send or forward
+links and files to one mailbox, with one line on why as the subject; the
+worker reads it every 2 minutes. Use a mailbox for the library alone: the
 worker marks every message it handled as seen.
 
-| Variable | Default | Value |
-|---|---|---|
-| `EMAIL_INTAKE_IMAP_URL` | none (off) | `imaps://user:password@host:993` (or `imap://…`, which must upgrade with STARTTLS; a server without it is refused). Percent-encode special characters in the user and password |
-| `EMAIL_INTAKE_DOMAINS` | required with the URL | Domains people send from, separated by commas, e.g. `example.org`. Other senders are refused, and links to these domains are ignored |
-| `EMAIL_INTAKE_MAILBOX` | `INBOX` | The folder to read |
-| `EMAIL_INTAKE_DONE_MAILBOX` | none | Folder that handled messages move to, e.g. `Processed`; it must exist. Without it they stay, marked as seen |
+| Field | Value |
+|---|---|
+| `imapUrl` | `imaps://user:password@host:993` (secret; or `imap://…`, which must upgrade with STARTTLS; a server without it is refused). Percent-encode special characters in the user and password |
+| `domains` | Domains people send from, e.g. `["example.org"]`; required with the URL. Other senders are refused, and links to these domains are ignored |
+| `mailbox` | The folder to read; `INBOX` when empty |
+| `doneMailbox` | Folder that handled messages move to, e.g. `Processed`; it must exist. Without it they stay, marked as seen |
+
+The test signs in and reads the number of messages in the mailbox; it moves
+nothing.
 
 The receiving mail server must add an `Authentication-Results` header with
 DKIM and SPF results (Google Workspace, Microsoft 365, and most providers
 do). A message is taken only when it shows `dkim=pass` or `spf=pass` for the
 sender's domain, and only from people with access, by their `work_email`.
-Answers go out by email (or Slack), so set up
-[notifications](#notifications-worker).
+Answers go out by email (or Slack), so set up [email](#email).
 
-## Weekly digests (worker)
+### Variables up to 0.3.2
 
-Optional. Mondays at 09:00 in the server's time zone, the worker sends the
-notes published in the last 7 days. Admins set a Slack channel for each
-team under **Admin → Teams**; everyone can follow tags under **Settings** and
-gets their own email. These variables set where notes for everyone go. Add
-the library's Slack app to each Slack channel (or give it the
-`chat:write.public` scope for public channels). A team's channel gets notes
-for the team too, so choose one only the team is in.
+Up to 0.3.2, these settings were environment variables. A process that sees
+one of them copies it into the database once, into a field that has no
+value yet, and writes an audit entry; afterwards the database wins and the
+variable is ignored. **Admin → Integrations**, `cli settings list`, and one
+warning in the log at start name the variables that are still set, so they
+can be deleted from `.env`.
 
-| Variable | Default | Value |
-|---|---|---|
-| `DIGEST_SLACK_CHANNEL_ID` | none | Channel ID such as `C0123456789` (Slack: the channel's details, at the bottom); not the channel's name |
-| `DIGEST_EMAIL_TO` | none | An address, such as a mailing list, that gets the digest by email; needs [email](#notifications-worker) |
+| Setting | Variables |
+|---|---|
+| `ai` | `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL`, `AI_BASE_URL` |
+| `email` | `SMTP_URL`, `MAILERSEND_API_TOKEN`, `MAIL_FROM`, `MAIL_FROM_NAME` |
+| `slack` | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET` |
+| `digest` | `DIGEST_SLACK_CHANNEL_ID`, `DIGEST_EMAIL_TO` |
+| `webhook` | `WEBHOOK_URL`, `WEBHOOK_SECRET` |
+| `email-intake` | `EMAIL_INTAKE_IMAP_URL`, `EMAIL_INTAKE_DOMAINS`, `EMAIL_INTAKE_MAILBOX`, `EMAIL_INTAKE_DONE_MAILBOX` |
+
+A `compose.yaml` of 0.3.2 or earlier does not pass `BETTER_AUTH_SECRET` to the
+worker. Such a worker cannot open the stored secrets: it reads these
+variables, as before, and the admin pages say so. Update `compose.yaml`
+([upgrades](deployment.md#upgrades)) to manage the worker's settings in the
+library.
 
 ## Error reporting (web, worker)
 

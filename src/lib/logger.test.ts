@@ -46,3 +46,21 @@ it("keeps the message and stack for ordinary errors", () => {
   expect(JSON.parse(output[0]!)).toMatchObject({ err: { type: "Error", message: error.message, stack: error.stack } });
   expect(errorMessage(error)).toBe(error.message);
 });
+
+it("redacts the secret fields of the settings' bodies", () => {
+  const output: string[] = [];
+  const logger = createLogger({ write: (line) => { output.push(line); } });
+  logger.level = "info";
+  const body = {
+    botToken: "xoxb-logged",
+    signingSecret: "signing-logged",
+    smtpUrl: "smtps://u:smtp-logged@mail.example.org",
+    mailersendToken: "mlsn-logged",
+    apiKey: "key-logged",
+    imapUrl: "imaps://u:imap-logged@imap.example.org",
+    secret: "webhook-logged",
+  };
+  logger.info({ body }, "a body");
+  expect(output.join("")).not.toMatch(/logged/);
+  expect(JSON.parse(output[0]!).body.apiKey).toBe("[redacted]");
+});

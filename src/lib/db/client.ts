@@ -42,3 +42,11 @@ export function getDb(): Database {
   globalForDb.libraryDb ??= createDb(getPool());
   return globalForDb.libraryDb;
 }
+
+/** Closes this process's pool, if it opened one (scripts and the operator command, before they exit). */
+export async function closePool(): Promise<void> {
+  const pool = globalForDb.libraryPool;
+  globalForDb.libraryPool = undefined;
+  globalForDb.libraryDb = undefined;
+  await pool?.end();
+}

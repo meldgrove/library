@@ -33,6 +33,10 @@ why.
   people who follow tags.
 - **Webhook**: published notes are posted as signed JSON, for example to a
   search index, a knowledge base, or an AI assistant.
+- **Integrations in the library**: admins set the AI model, email, Slack,
+  the webhook and the intake mailbox under Admin → Integrations; operators
+  and AI agents set the same on the server with `cli settings`, without a
+  browser. Their secrets are encrypted in the database.
 
 ## Screenshots
 
@@ -69,9 +73,11 @@ the library itself; see [Deployment](docs/deployment.md).
 
 - [Architecture](docs/architecture.md): the way of an upload, data, review,
   untrusted content
-- [Configuration](docs/configuration.md): every environment variable
+- [Configuration](docs/configuration.md): every environment variable and
+  every integration setting
 - [Deployment](docs/deployment.md): running it on a Linux server (Debian,
-  Ubuntu), storage, health checks, upgrades, and automatic updates
+  Ubuntu), storage, settings from the command line (`cli settings`), health
+  checks, upgrades, and automatic updates
 - [Coolify](docs/coolify.md): running it on Coolify instead
 - [Identity and access](docs/identity-and-access.md): OpenID Connect, the
   manual directory, the Keycloak directory, and who sees a note

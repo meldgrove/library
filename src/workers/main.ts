@@ -2,12 +2,9 @@ import { hostname } from "node:os";
 import * as Sentry from "@sentry/node";
 import { PgBoss } from "pg-boss";
 import {
-  getAiConfig,
+  getAiLimitsConfig,
   getDatabaseConfig,
-  getDigestConfig,
-  getEmailIntakeConfig,
   getErrorReportingConfig,
-  getWebhookConfig,
   getNotificationConfig,
   getOcrConfig,
   getUploadConfig,
@@ -38,19 +35,19 @@ import { openImapMailbox } from "@/lib/email/imap";
 import { recordPersonalDigests, recordWeeklyDigests } from "@/lib/library/digest";
 import { pollMailbox } from "@/lib/library/email-intake";
 import { processDueSlackEvents } from "@/lib/library/slack-intake";
-import { createSlackIntakeClient } from "@/lib/slack/client";
-import { createDraftModel } from "@/lib/library/draft";
 import { startProcessor } from "@/lib/library/pipeline";
 import { cleanUpOriginals } from "@/lib/library/originals";
 import { recordReviewReminders } from "@/lib/library/review";
 import { ensureDefaultDocumentTypes, ensureDefaultTopicAreas } from "@/lib/library/taxonomy";
-import { createWebhookClient } from "@/lib/webhook/client";
 import { requestAllPublished, syncDue } from "@/lib/webhook/sync";
 import { logger } from "@/lib/logger";
 import { retrySlackLookups, startDispatcher } from "@/lib/notifications/dispatch";
-import { channelModes, createTransports } from "@/lib/notifications/transports";
+import { importAtStart } from "@/lib/settings/legacy-env";
+import { createSettingsReader } from "@/lib/settings/runtime";
+import { getSettingsKey } from "@/lib/settings/secret-box";
 import { getStorage } from "@/lib/storage";
 import { DEFAULT_HEARTBEAT_FILE, startHeartbeat } from "./heartbeat";
+import { createWorkerIntegrations } from "./integrations";
 
 interface DirectorySyncJob {
   trigger?: SyncTrigger;
@@ -76,6 +73,13 @@ async function main() {
   });
   await boss.start();
 
+  // The settings of Admin › Integrations, read at each use. Old variables are
+  // copied into the database once; a worker without BETTER_AUTH_SECRET (a
+  // Compose file up to 0.3.2) reads them instead.
+  const settingsKey = getSettingsKey();
+  await importAtStart(getDb(), settingsKey, "worker");
+  const integrations = createWorkerIntegrations(createSettingsReader(getDb(), settingsKey), getNotificationConfig(), getAiLimitsConfig());
+
   // The Keycloak directory syncs every 15 minutes and once at startup, so a
   // fresh deployment has people right away. pg-boss keeps schedules in the
   // database, so the manual directory removes the schedule.
@@ -98,13 +102,10 @@ async function main() {
   }
 
   // Slack lookups that failed a week ago are tried again.
-  const notificationConfig = getNotificationConfig();
-  const transports = createTransports(notificationConfig);
-  const channels = channelModes(transports);
   await boss.createQueue(QUEUES.watch, { retryLimit: 1, retryDelay: 60, expireInSeconds: 600 });
   await boss.schedule(QUEUES.watch, WATCH_CRON, {}, { tz: SERVER_TIME_ZONE });
   await boss.work(QUEUES.watch, async () => {
-    await retrySlackLookups(getDb(), transports, new Date());
+    await retrySlackLookups(getDb(), await integrations.transports(), new Date());
   });
 
   // Review reminders: a week after the draft to its owner, 30 days to the maintainers.
@@ -128,7 +129,6 @@ async function main() {
 
   // The weekly digest, Mondays at 09:00: the library's channel and list, each
   // team's channel, and an email to everyone who follows tags.
-  const digestConfig = getDigestConfig();
   await boss.createQueue(QUEUES.weeklyDigest, { retryLimit: 3, retryDelay: 300, expireInSeconds: 600 });
   // A worker that is down on Monday at 09:00 (a restart, an update) sends the
   // digest when it is back: the next week's digest would not list these notes.
@@ -136,63 +136,47 @@ async function main() {
   await boss.schedule(QUEUES.weeklyDigest, WEEKLY_DIGEST_CRON, {}, { tz: SERVER_TIME_ZONE, missed: "once" });
   await boss.work(QUEUES.weeklyDigest, async () => {
     const now = new Date();
-    const result = await recordWeeklyDigests(getDb(), now, { slackChannelId: digestConfig.DIGEST_SLACK_CHANNEL_ID, emailTo: digestConfig.DIGEST_EMAIL_TO });
+    const result = await recordWeeklyDigests(getDb(), now, await integrations.digest());
     const personal = await recordPersonalDigests(getDb(), now);
     logger.info({ ...result, personal }, "weekly digest recorded");
   });
 
-  // The intake mailbox, every 2 minutes.
-  const emailIntake = getEmailIntakeConfig();
-  const imapUrl = emailIntake.EMAIL_INTAKE_IMAP_URL;
-  if (imapUrl) {
-    const maxBytes = getUploadConfig().UPLOAD_MAX_MB * 1_048_576;
-    const intakeDeps = { db: getDb(), storage: getStorage(), maxBytes, domains: emailIntake.EMAIL_INTAKE_DOMAINS };
+  // The intake mailbox, every 2 minutes, while the email intake is set up.
+  // Each run signs in again with the current setting.
+  const maxBytes = getUploadConfig().UPLOAD_MAX_MB * 1_048_576;
+  await boss.createQueue(QUEUES.emailIntake, { retryLimit: 0, expireInSeconds: 600 });
+  await boss.schedule(QUEUES.emailIntake, EMAIL_INTAKE_CRON, {}, { tz: SERVER_TIME_ZONE });
+  await boss.work(QUEUES.emailIntake, async () => {
+    const intake = await integrations.emailIntake();
+    if (!intake) return;
     const open = () =>
       openImapMailbox({
-        url: imapUrl,
-        mailbox: emailIntake.EMAIL_INTAKE_MAILBOX,
-        doneMailbox: emailIntake.EMAIL_INTAKE_DONE_MAILBOX,
+        url: intake.imapUrl,
+        mailbox: intake.mailbox,
+        doneMailbox: intake.doneMailbox,
         // Room for one file at the limit, base64-encoded, and the text around it.
         maxMessageBytes: Math.ceil(maxBytes * 1.4) + 1_048_576,
       });
-    await boss.createQueue(QUEUES.emailIntake, { retryLimit: 0, expireInSeconds: 600 });
-    await boss.schedule(QUEUES.emailIntake, EMAIL_INTAKE_CRON, {}, { tz: SERVER_TIME_ZONE });
-    await boss.work(QUEUES.emailIntake, async () => {
-      const counts = await pollMailbox(intakeDeps, open);
-      if (Object.keys(counts).length > 0) logger.info(counts, "intake mailbox read");
-    });
-  } else {
-    await boss.unschedule(QUEUES.emailIntake);
-    if (await boss.getQueue(QUEUES.emailIntake)) await boss.deleteQueuedJobs(QUEUES.emailIntake);
-  }
+    const counts = await pollMailbox({ db: getDb(), storage: getStorage(), maxBytes, domains: intake.domains }, open);
+    if (Object.keys(counts).length > 0) logger.info(counts, "intake mailbox read");
+  });
 
-  // The webhook: changed notes every minute, everything compared nightly.
-  const { WEBHOOK_URL, WEBHOOK_SECRET } = getWebhookConfig();
-  if (WEBHOOK_URL && WEBHOOK_SECRET) {
-    const syncDeps = {
-      db: getDb(),
-      client: createWebhookClient({ url: WEBHOOK_URL, secret: WEBHOOK_SECRET }),
-      baseUrl: notificationConfig.LIBRARY_BASE_URL,
-    };
-    await boss.createQueue(QUEUES.webhookSync, { retryLimit: 0, expireInSeconds: 300 });
-    await boss.schedule(QUEUES.webhookSync, WEBHOOK_SYNC_CRON, {}, { tz: SERVER_TIME_ZONE });
-    await boss.work(QUEUES.webhookSync, async () => {
-      const counts = await syncDue(syncDeps);
-      if (Object.keys(counts).length > 0) logger.info(counts, "webhook sync");
-    });
-    await boss.createQueue(QUEUES.webhookReconcile, { retryLimit: 1, retryDelay: 600, expireInSeconds: 1800 });
-    await boss.schedule(QUEUES.webhookReconcile, WEBHOOK_RECONCILE_CRON, {}, { tz: SERVER_TIME_ZONE });
-    await boss.work(QUEUES.webhookReconcile, async () => {
-      await requestAllPublished(getDb(), new Date());
-    });
-    channels.webhook = "live";
-  } else {
-    for (const queue of [QUEUES.webhookSync, QUEUES.webhookReconcile]) {
-      await boss.unschedule(queue);
-      if (await boss.getQueue(queue)) await boss.deleteQueuedJobs(queue);
-    }
-    channels.webhook = "off";
-  }
+  // The webhook: changed notes every minute, everything compared nightly,
+  // while the webhook is set up.
+  const baseUrl = getNotificationConfig().LIBRARY_BASE_URL;
+  await boss.createQueue(QUEUES.webhookSync, { retryLimit: 0, expireInSeconds: 300 });
+  await boss.schedule(QUEUES.webhookSync, WEBHOOK_SYNC_CRON, {}, { tz: SERVER_TIME_ZONE });
+  await boss.work(QUEUES.webhookSync, async () => {
+    const client = await integrations.webhookClient();
+    if (!client) return;
+    const counts = await syncDue({ db: getDb(), client, baseUrl });
+    if (Object.keys(counts).length > 0) logger.info(counts, "webhook sync");
+  });
+  await boss.createQueue(QUEUES.webhookReconcile, { retryLimit: 1, retryDelay: 600, expireInSeconds: 1800 });
+  await boss.schedule(QUEUES.webhookReconcile, WEBHOOK_RECONCILE_CRON, {}, { tz: SERVER_TIME_ZONE });
+  await boss.work(QUEUES.webhookReconcile, async () => {
+    if (await integrations.webhookClient()) await requestAllPublished(getDb(), new Date());
+  });
 
   // A fresh library has document types and topic areas to draft with from the start.
   const addedTypes = await ensureDefaultDocumentTypes(getDb());
@@ -200,38 +184,42 @@ async function main() {
   const addedAreas = await ensureDefaultTopicAreas(getDb());
   if (addedAreas > 0) logger.info({ added: addedAreas }, "default topic areas added");
 
-  // Uploads: text, screen, duplicate check, AI draft.
-  const aiConfig = getAiConfig();
+  // Uploads: text, screen, duplicate check, AI draft. Without an AI model
+  // set up, uploads wait at the draft.
   const ocrConfig = getOcrConfig();
   const stopProcessor = startProcessor(
     {
       db: getDb(),
       storage: getStorage(),
-      model: createDraftModel(aiConfig),
+      model: () => integrations.draftModel(),
       ocr: { command: ocrConfig.OCR_COMMAND, languages: ocrConfig.OCR_LANGUAGES },
-      maxBytes: getUploadConfig().UPLOAD_MAX_MB * 1_048_576,
-      dailyDraftLimit: aiConfig.AI_DAILY_LIMIT,
+      maxBytes,
+      dailyDraftLimit: getAiLimitsConfig().AI_DAILY_LIMIT,
     },
     PROCESS_INTERVAL_MS,
   );
 
-  // Messages to the Slack bot, stored by the web process.
-  const slackToken = notificationConfig.SLACK_BOT_TOKEN;
-  const slackIntake = slackToken
-    ? { db: getDb(), storage: getStorage(), slack: createSlackIntakeClient(slackToken), maxBytes: getUploadConfig().UPLOAD_MAX_MB * 1_048_576 }
-    : undefined;
-  const stopSlackIntake = slackIntake ? startPolling("Slack intake", () => processDueSlackEvents(slackIntake), SLACK_INTAKE_INTERVAL_MS) : async () => {};
+  // Messages to the Slack bot, stored by the web process; handled while a
+  // bot token is set up.
+  const stopSlackIntake = startPolling(
+    "Slack intake",
+    async () => {
+      const slack = await integrations.slackIntakeClient();
+      return slack ? processDueSlackEvents({ db: getDb(), storage: getStorage(), slack, maxBytes }) : {};
+    },
+    SLACK_INTAKE_INTERVAL_MS,
+  );
 
-  const stopDispatcher = startDispatcher({ db: getDb(), transports, intervalMs: DISPATCH_INTERVAL_MS });
+  const stopDispatcher = startDispatcher({ db: getDb(), transports: () => integrations.transports(), intervalMs: DISPATCH_INTERVAL_MS });
 
   const stopHeartbeat = startHeartbeat({
     db: getDb(),
     workerId: hostname(),
     file: envValue("WORKER_HEARTBEAT_FILE") ?? DEFAULT_HEARTBEAT_FILE,
-    channels,
+    channels: () => integrations.channels(),
   });
   logger.info(
-    { directory: directory.kind, channels, ai: aiConfig.AI_PROVIDER, ocr: Boolean(ocrConfig.OCR_COMMAND), slackIntake: Boolean(slackToken), emailIntake: Boolean(imapUrl) },
+    { directory: directory.kind, channels: await integrations.channels(), ocr: Boolean(ocrConfig.OCR_COMMAND) },
     "worker started",
   );
 

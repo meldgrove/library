@@ -1,13 +1,16 @@
 import { z } from "zod";
-import { SLACK_CHANNEL_ID_PATTERN } from "@/lib/library/constants";
 
 /**
- * Environment configuration, validated with zod.
+ * Environment configuration, validated with zod: only what a process needs
+ * before it can read the database, and limits that admins must not change.
+ * Outside services (Slack, email, the AI provider, the webhook, the intake
+ * mailbox) are set on the admin page or with `cli settings`
+ * (`src/lib/settings/`); their old variables are read only by
+ * `src/lib/settings/legacy-env.ts`.
  *
  * Each process validates only what it needs: `migrate` needs the database,
- * the worker also needs the directory, notifications, storage, and the AI
- * model, and the web process needs the database, login, the directory, and
- * storage. Empty strings
+ * the worker also needs the directory and storage, and the web process
+ * needs the database, login, the directory, and storage. Empty strings
  * count as unset, because some platforms pass unset variables as "".
  */
 
@@ -17,20 +20,20 @@ const blankAsUndefined = (value: unknown) =>
   typeof value === "string" && value.trim() === "" ? undefined : value;
 
 /** A variable that must be set; when it is not, the error says so instead of naming types. */
-const required = <T extends z.ZodType>(schema: T) =>
+export const required = <T extends z.ZodType>(schema: T) =>
   z.preprocess(blankAsUndefined, z.any().refine((value) => value !== undefined, { message: "is required", abort: true }).pipe(schema));
-const requiredString = () => required(z.string().min(1));
-const optional = <T extends z.ZodType>(schema: T) => z.preprocess(blankAsUndefined, schema.optional());
+export const requiredString = () => required(z.string().min(1));
+export const optional = <T extends z.ZodType>(schema: T) => z.preprocess(blankAsUndefined, schema.optional());
 
-const httpUrl = z.url({ protocol: /^https?$/ });
-const withoutTrailingSlash = (url: string) => url.replace(/\/+$/, "");
+export const httpUrl = z.url({ protocol: /^https?$/ });
+export const withoutTrailingSlash = (url: string) => url.replace(/\/+$/, "");
 
 /** A positive whole number; unset means `fallback`. */
-const positiveInt = (fallback: number) =>
+export const positiveInt = (fallback: number) =>
   z.preprocess((value) => blankAsUndefined(value) ?? String(fallback), z.coerce.number().int().positive());
 
 /** The value of BETTER_AUTH_SECRET in `.env.example`, refused in production. */
-const EXAMPLE_SECRET = "development-secret-development-secret";
+export const EXAMPLE_SECRET = "development-secret-development-secret";
 
 /** A Keycloak group path such as "/library" or "/staff/library". */
 const groupPath = z.string().regex(/^\/[^/].*[^/]$|^\/[^/]$/, 'must be a group path such as "/library"');
@@ -70,13 +73,9 @@ function withDefaults(env: Env): Env {
     KEYCLOAK_CLIENT_SECRET: value("KEYCLOAK_CLIENT_SECRET") ?? value("OIDC_CLIENT_SECRET"),
     // Production sends for real; development and tests only log.
     NOTIFICATION_TRANSPORT: value("NOTIFICATION_TRANSPORT") ?? (env.NODE_ENV === "production" ? "live" : "console"),
-    MAIL_FROM_NAME: value("MAIL_FROM_NAME") ?? "Meldgrove Library",
     // S3 without any of its settings is no storage: the library takes links only.
     STORAGE_DRIVER: storageDriver === "s3" && S3_VARIABLES.every((name) => value(name) === undefined) ? "off" : storageDriver,
-    // The fake model only exists outside production.
-    AI_PROVIDER: value("AI_PROVIDER") ?? (env.NODE_ENV === "production" ? undefined : "fake"),
     OCR_LANGUAGES: value("OCR_LANGUAGES") ?? "deu+eng",
-    EMAIL_INTAKE_MAILBOX: value("EMAIL_INTAKE_MAILBOX") ?? "INBOX",
   };
 }
 
@@ -142,27 +141,13 @@ const directorySchema = z.discriminatedUnion("DIRECTORY", [
 ]);
 
 /**
- * Notifications. Slack and email are each optional: a channel without its
- * settings is off. Email goes through SMTP or MailerSend.
+ * How notifications go out: for real, or only to the log (development and
+ * tests). Slack and email themselves are settings in the database.
  */
-const notificationSchema = z
-  .object({
-    NOTIFICATION_TRANSPORT: z.enum(["live", "console"]),
-    LIBRARY_BASE_URL: required(httpUrl.transform(withoutTrailingSlash)),
-    SLACK_BOT_TOKEN: optional(z.string().startsWith("xoxb-", "must be a Slack bot token (xoxb-…)")),
-    SMTP_URL: optional(z.url({ protocol: /^smtps?$/, error: "must be an smtp:// or smtps:// URL" })),
-    MAILERSEND_API_TOKEN: optional(z.string().min(1)),
-    MAIL_FROM: optional(z.email()),
-    MAIL_FROM_NAME: requiredString(),
-  })
-  .refine((env) => !(env.SMTP_URL && env.MAILERSEND_API_TOKEN), {
-    message: "set either SMTP_URL or MAILERSEND_API_TOKEN, not both",
-    path: ["MAILERSEND_API_TOKEN"],
-  })
-  .refine((env) => !(env.SMTP_URL || env.MAILERSEND_API_TOKEN) || env.MAIL_FROM, {
-    message: "is required to send email",
-    path: ["MAIL_FROM"],
-  });
+const notificationSchema = z.object({
+  NOTIFICATION_TRANSPORT: z.enum(["live", "console"]),
+  LIBRARY_BASE_URL: required(httpUrl.transform(withoutTrailingSlash)),
+});
 
 /**
  * Where originals are kept: a directory (development, tests, single-server
@@ -202,103 +187,42 @@ const uploadSchema = z.object({
 });
 
 /**
- * The AI model that drafts notes: Anthropic's Claude API, any OpenAI-compatible
- * chat completions API (Mistral, OpenAI, Azure OpenAI, a self-hosted model), or
- * `fake`, which drafts from the text without a model (development and tests).
+ * Limits on the AI model, which admins set up in the library. AI_PROVIDER
+ * here only switches on `fake`, which drafts from the text without a model
+ * (development and tests); other values are old settings that the library
+ * copies into the database once (`src/lib/settings/legacy-env.ts`).
  */
-const aiSchema = z.discriminatedUnion("AI_PROVIDER", [
-  z.object({
-    AI_PROVIDER: z.literal("fake"),
-    AI_DAILY_LIMIT: positiveInt(200),
-  }),
-  z.object({
-    AI_PROVIDER: z.literal("openai-compatible"),
-    /** The API's base URL, up to and including `/v1`. */
-    AI_BASE_URL: required(httpUrl.transform(withoutTrailingSlash)),
-    AI_API_KEY: requiredString(),
-    AI_MODEL: requiredString(),
+const aiLimitsSchema = z
+  .object({
+    AI_PROVIDER: optional(z.string()),
     /** Drafts per day, across all uploads; the rest waits for the next day. */
     AI_DAILY_LIMIT: positiveInt(200),
     AI_TIMEOUT_MS: positiveInt(120_000),
-  }),
-  z.object({
-    AI_PROVIDER: z.literal("anthropic"),
-    AI_API_KEY: requiredString(),
-    /** A Claude model, e.g. `claude-opus-5-5`. */
-    AI_MODEL: requiredString(),
-    AI_DAILY_LIMIT: positiveInt(200),
-    AI_TIMEOUT_MS: positiveInt(120_000),
-  }),
-]);
+  })
+  .transform(({ AI_PROVIDER, ...limits }) => ({ ...limits, AI_FAKE: AI_PROVIDER === "fake" }));
+
+/**
+ * The root key of the settings in the database: their secrets are sealed
+ * with a key derived from BETTER_AUTH_SECRET (`src/lib/settings/secret-box.ts`).
+ * The web process requires it (`authSchema`); Compose files up to 0.3.2 do
+ * not pass it to the worker, which then reads the old variables instead.
+ */
+const settingsSecretSchema = z
+  .object({
+    NODE_ENV: z.string().optional(),
+    BETTER_AUTH_SECRET: optional(z.string().min(32, "must be at least 32 characters")),
+  })
+  .refine((env) => env.NODE_ENV !== "production" || env.BETTER_AUTH_SECRET !== EXAMPLE_SECRET, {
+    message: "is the example value from .env.example; generate one with `openssl rand -base64 32`",
+    path: ["BETTER_AUTH_SECRET"],
+  })
+  .transform(({ BETTER_AUTH_SECRET }) => ({ BETTER_AUTH_SECRET }));
 
 /** Text recognition for scanned PDFs: a command such as `ocrmypdf`; off when unset. */
 const ocrSchema = z.object({
   OCR_COMMAND: optional(z.string().min(1)),
   OCR_LANGUAGES: required(z.string().regex(/^[a-z_]+(\+[a-z_]+)*$/, 'must be Tesseract language codes such as "deu+eng"')),
 });
-
-/** The webhook: off until WEBHOOK_URL is set; then the signing secret is required. */
-const webhookSchema = z
-  .object({
-    WEBHOOK_URL: optional(httpUrl),
-    WEBHOOK_SECRET: optional(z.string().min(16, "must be at least 16 characters")),
-  })
-  .refine((env) => !env.WEBHOOK_URL || env.WEBHOOK_SECRET, {
-    message: "is required with WEBHOOK_URL",
-    path: ["WEBHOOK_SECRET"],
-  });
-
-/**
- * The Slack bot's intake: the web process accepts Slack's events only with
- * a valid signature. Off until SLACK_SIGNING_SECRET is set; the worker then
- * handles the messages with SLACK_BOT_TOKEN.
- */
-const slackIntakeSchema = z.object({
-  SLACK_SIGNING_SECRET: optional(z.string().min(1)),
-});
-
-const slackChannelId = z.string().regex(SLACK_CHANNEL_ID_PATTERN, "must be a Slack channel ID such as C0123456789");
-
-/**
- * The weekly digest: a Slack channel and an email address (a list) for notes
- * for everyone. Teams set their own Slack channel in the library.
- */
-const digestSchema = z.object({
-  DIGEST_SLACK_CHANNEL_ID: optional(slackChannelId),
-  DIGEST_EMAIL_TO: optional(z.email().transform((address) => address.toLowerCase())),
-});
-
-/** A list of domain names, separated by commas or spaces. Lower-cased. */
-const domainList = z.preprocess(
-  (value) =>
-    typeof value === "string"
-      ? value
-          .split(/[\s,;]+/)
-          .map((item) => item.trim().toLowerCase().replace(/^@/, ""))
-          .filter(Boolean)
-      : [],
-  z.array(z.string().regex(/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/, "must be domain names such as example.org")),
-);
-
-/**
- * The email intake: one mailbox the worker reads over IMAP. Off until
- * EMAIL_INTAKE_IMAP_URL is set; then the allowed sender domains are required.
- */
-const emailIntakeSchema = z
-  .object({
-    EMAIL_INTAKE_IMAP_URL: optional(z.url({ protocol: /^imaps?$/, error: "must be an imaps:// (or imap://) URL with user and password" })),
-    EMAIL_INTAKE_MAILBOX: requiredString(),
-    EMAIL_INTAKE_DOMAINS: domainList,
-    EMAIL_INTAKE_DONE_MAILBOX: optional(z.string().min(1)),
-  })
-  .superRefine((env, context) => {
-    if (!env.EMAIL_INTAKE_IMAP_URL) return;
-    const url = new URL(env.EMAIL_INTAKE_IMAP_URL);
-    if (!url.username || !url.password) context.addIssue({ code: "custom", path: ["EMAIL_INTAKE_IMAP_URL"], message: "needs the user and password in the URL" });
-    if (env.EMAIL_INTAKE_DOMAINS.length === 0) {
-      context.addIssue({ code: "custom", path: ["EMAIL_INTAKE_DOMAINS"], message: "is required with EMAIL_INTAKE_IMAP_URL: list the domains staff send from" });
-    }
-  });
 
 /** The release version, e.g. "0.2.0". Release images set it; images built from source have none. */
 const versionSchema = z.object({
@@ -337,14 +261,11 @@ export type KeycloakDirectoryConfig = Extract<DirectoryConfig, { DIRECTORY: "key
 export type NotificationConfig = z.infer<typeof notificationSchema>;
 export type StorageConfig = z.infer<typeof storageSchema>;
 export type UploadConfig = z.infer<typeof uploadSchema>;
-export type AiConfig = z.infer<typeof aiSchema>;
+export type AiLimitsConfig = z.infer<typeof aiLimitsSchema>;
+export type SettingsSecretConfig = z.infer<typeof settingsSecretSchema>;
 export type OcrConfig = z.infer<typeof ocrSchema>;
-export type WebhookConfig = z.infer<typeof webhookSchema>;
 export type VersionConfig = z.infer<typeof versionSchema>;
 export type ErrorReportingConfig = z.infer<typeof errorReportingSchema>;
-export type SlackIntakeConfig = z.infer<typeof slackIntakeSchema>;
-export type DigestConfig = z.infer<typeof digestSchema>;
-export type EmailIntakeConfig = z.infer<typeof emailIntakeSchema>;
 export type UpdaterConfig = z.infer<typeof updaterSchema>;
 
 export class ConfigError extends Error {
@@ -385,16 +306,16 @@ export function parseUploadConfig(env: Env = process.env): UploadConfig {
   return parse(uploadSchema, env);
 }
 
-export function parseAiConfig(env: Env = process.env): AiConfig {
-  return parse(aiSchema, env);
+export function parseAiLimitsConfig(env: Env = process.env): AiLimitsConfig {
+  return parse(aiLimitsSchema, env);
+}
+
+export function parseSettingsSecretConfig(env: Env = process.env): SettingsSecretConfig {
+  return parse(settingsSecretSchema, env);
 }
 
 export function parseOcrConfig(env: Env = process.env): OcrConfig {
   return parse(ocrSchema, env);
-}
-
-export function parseWebhookConfig(env: Env = process.env): WebhookConfig {
-  return parse(webhookSchema, env);
 }
 
 export function parseVersionConfig(env: Env = process.env): VersionConfig {
@@ -403,18 +324,6 @@ export function parseVersionConfig(env: Env = process.env): VersionConfig {
 
 export function parseErrorReportingConfig(env: Env = process.env): ErrorReportingConfig {
   return parse(errorReportingSchema, env);
-}
-
-export function parseSlackIntakeConfig(env: Env = process.env): SlackIntakeConfig {
-  return parse(slackIntakeSchema, env);
-}
-
-export function parseDigestConfig(env: Env = process.env): DigestConfig {
-  return parse(digestSchema, env);
-}
-
-export function parseEmailIntakeConfig(env: Env = process.env): EmailIntakeConfig {
-  return parse(emailIntakeSchema, env);
 }
 
 export function parseUpdaterConfig(env: Env = process.env): UpdaterConfig {
@@ -433,7 +342,7 @@ function validate(schemas: readonly z.ZodType[], env: Env): void {
 
 /** Validates every variable the web process needs. Called once at startup. */
 export function validateWebConfig(env: Env = process.env): void {
-  validate([databaseSchema, authSchema, directorySchema, storageSchema, uploadSchema, slackIntakeSchema, errorReportingSchema, updaterSchema], env);
+  validate([databaseSchema, authSchema, directorySchema, storageSchema, uploadSchema, errorReportingSchema, updaterSchema], env);
 }
 
 /** Validates every variable the worker needs. */
@@ -445,11 +354,9 @@ export function validateWorkerConfig(env: Env = process.env): void {
       notificationSchema,
       storageSchema,
       uploadSchema,
-      aiSchema,
+      aiLimitsSchema,
+      settingsSecretSchema,
       ocrSchema,
-      webhookSchema,
-      digestSchema,
-      emailIntakeSchema,
       errorReportingSchema,
     ],
     env,
@@ -462,14 +369,11 @@ let directoryConfig: DirectoryConfig | undefined;
 let notificationConfig: NotificationConfig | undefined;
 let storageConfig: StorageConfig | undefined;
 let uploadConfig: UploadConfig | undefined;
-let aiConfig: AiConfig | undefined;
+let aiLimitsConfig: AiLimitsConfig | undefined;
+let settingsSecretConfig: SettingsSecretConfig | undefined;
 let ocrConfig: OcrConfig | undefined;
-let webhookConfig: WebhookConfig | undefined;
 let versionConfig: VersionConfig | undefined;
 let errorReportingConfig: ErrorReportingConfig | undefined;
-let slackIntakeConfig: SlackIntakeConfig | undefined;
-let digestConfig: DigestConfig | undefined;
-let emailIntakeConfig: EmailIntakeConfig | undefined;
 let updaterConfig: UpdaterConfig | undefined;
 
 export function getDatabaseConfig(): DatabaseConfig {
@@ -502,19 +406,19 @@ export function getUploadConfig(): UploadConfig {
   return uploadConfig;
 }
 
-export function getAiConfig(): AiConfig {
-  aiConfig ??= parseAiConfig();
-  return aiConfig;
+export function getSettingsSecretConfig(): SettingsSecretConfig {
+  settingsSecretConfig ??= parseSettingsSecretConfig();
+  return settingsSecretConfig;
+}
+
+export function getAiLimitsConfig(): AiLimitsConfig {
+  aiLimitsConfig ??= parseAiLimitsConfig();
+  return aiLimitsConfig;
 }
 
 export function getOcrConfig(): OcrConfig {
   ocrConfig ??= parseOcrConfig();
   return ocrConfig;
-}
-
-export function getWebhookConfig(): WebhookConfig {
-  webhookConfig ??= parseWebhookConfig();
-  return webhookConfig;
 }
 
 export function getVersionConfig(): VersionConfig {
@@ -525,21 +429,6 @@ export function getVersionConfig(): VersionConfig {
 export function getErrorReportingConfig(): ErrorReportingConfig {
   errorReportingConfig ??= parseErrorReportingConfig();
   return errorReportingConfig;
-}
-
-export function getSlackIntakeConfig(): SlackIntakeConfig {
-  slackIntakeConfig ??= parseSlackIntakeConfig();
-  return slackIntakeConfig;
-}
-
-export function getDigestConfig(): DigestConfig {
-  digestConfig ??= parseDigestConfig();
-  return digestConfig;
-}
-
-export function getEmailIntakeConfig(): EmailIntakeConfig {
-  emailIntakeConfig ??= parseEmailIntakeConfig();
-  return emailIntakeConfig;
 }
 
 export function getUpdaterConfig(): UpdaterConfig {

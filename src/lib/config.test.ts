@@ -6,15 +6,12 @@ import {
   parseErrorReportingConfig,
   parseVersionConfig,
   parseNotificationConfig,
-  parseAiConfig,
-  parseDigestConfig,
-  parseEmailIntakeConfig,
-  parseSlackIntakeConfig,
+  parseAiLimitsConfig,
   parseOcrConfig,
+  parseSettingsSecretConfig,
   parseStorageConfig,
   parseUploadConfig,
   parseUpdaterConfig,
-  parseWebhookConfig,
   validateWebConfig,
   validateWorkerConfig,
 } from "./config";
@@ -150,35 +147,9 @@ describe("parseNotificationConfig", () => {
     expect(parseNotificationConfig({ ...base, NODE_ENV: "production", NOTIFICATION_TRANSPORT: "console" }).NOTIFICATION_TRANSPORT).toBe("console");
   });
 
-  it("treats Slack and email as optional, blank as unset", () => {
-    const config = parseNotificationConfig({ ...base, SLACK_BOT_TOKEN: "", SMTP_URL: " ", MAILERSEND_API_TOKEN: " ", MAIL_FROM: "" });
-    expect(config).toMatchObject({
-      LIBRARY_BASE_URL: "https://library.example.org",
-      SLACK_BOT_TOKEN: undefined,
-      SMTP_URL: undefined,
-      MAILERSEND_API_TOKEN: undefined,
-      MAIL_FROM_NAME: "Meldgrove Library",
-    });
-  });
-
-  it("takes a Slack channel ID, not a channel name", () => {
-  });
-
-  it("rejects a user token for Slack", () => {
-    expect(() => parseNotificationConfig({ ...base, SLACK_BOT_TOKEN: "xoxp-123" })).toThrow(/SLACK_BOT_TOKEN/);
-  });
-
-  it("needs a sender for email, and one way to send it", () => {
-    expect(parseNotificationConfig({ ...base, SMTP_URL: "smtps://user:pass@mail.example.org:465", MAIL_FROM: "library@example.org" }).SMTP_URL).toBe(
-      "smtps://user:pass@mail.example.org:465",
-    );
-    expect(() => parseNotificationConfig({ ...base, SMTP_URL: "smtp://mail.example.org" })).toThrow(/MAIL_FROM/);
-    expect(() => parseNotificationConfig({ ...base, MAILERSEND_API_TOKEN: "mlsn.abc" })).toThrow(/MAIL_FROM/);
-    expect(() => parseNotificationConfig({ ...base, MAILERSEND_API_TOKEN: "mlsn.abc", MAIL_FROM: "not-an-email" })).toThrow(/MAIL_FROM/);
-    expect(() => parseNotificationConfig({ ...base, SMTP_URL: "https://mail.example.org", MAIL_FROM: "library@example.org" })).toThrow(/SMTP_URL/);
-    expect(() =>
-      parseNotificationConfig({ ...base, SMTP_URL: "smtp://mail.example.org", MAILERSEND_API_TOKEN: "mlsn.abc", MAIL_FROM: "library@example.org" }),
-    ).toThrow(/either SMTP_URL or MAILERSEND_API_TOKEN/);
+  it("ignores the old Slack and email variables: they are settings in the database now", () => {
+    const config = parseNotificationConfig({ ...base, SLACK_BOT_TOKEN: "xoxp-123", SMTP_URL: "https://mail.example.org" });
+    expect(config).toEqual({ NOTIFICATION_TRANSPORT: "console", LIBRARY_BASE_URL: "https://library.example.org" });
   });
 });
 
@@ -187,7 +158,14 @@ describe("validateWorkerConfig", () => {
     const rest = { DATABASE_URL: "postgres://u:p@db:5432/library", STORAGE_DIR: "/data", NODE_ENV: "test", ...manualDirectory };
     expect(() => validateWorkerConfig(rest)).toThrow(/LIBRARY_BASE_URL/);
     expect(() => validateWorkerConfig({ ...rest, LIBRARY_BASE_URL: "https://library.example.org" })).not.toThrow();
-    expect(() => validateWorkerConfig({ ...rest, LIBRARY_BASE_URL: "https://library.example.org", NODE_ENV: "production" })).toThrow(/AI_PROVIDER/);
+  });
+
+  it("starts in production without an AI model, and with the variables of a Compose file up to 0.3.2", () => {
+    const production = { DATABASE_URL: "postgres://u:p@db:5432/library", STORAGE_DIR: "/data", NODE_ENV: "production", LIBRARY_BASE_URL: "https://library.example.org", ...manualDirectory };
+    expect(() => validateWorkerConfig(production)).not.toThrow();
+    expect(() =>
+      validateWorkerConfig({ ...production, AI_PROVIDER: "openai-compatible", AI_API_KEY: "", DIGEST_SLACK_CHANNEL_ID: "library", WEBHOOK_URL: "https://hooks.example.org" }),
+    ).not.toThrow();
   });
 });
 
@@ -230,46 +208,21 @@ describe("parseUploadConfig", () => {
   });
 });
 
-describe("parseAiConfig", () => {
-  it("uses the fake model outside production, and needs a real one in production", () => {
-    expect(parseAiConfig({ NODE_ENV: "test" })).toEqual({ AI_PROVIDER: "fake", AI_DAILY_LIMIT: 200 });
-    expect(() => parseAiConfig({ NODE_ENV: "production" })).toThrow(/AI_PROVIDER/);
-  });
-
-  it("needs the URL, key, and model of an OpenAI-compatible API", () => {
-    expect(() => parseAiConfig({ AI_PROVIDER: "openai-compatible" })).toThrow(/AI_BASE_URL[\s\S]*AI_API_KEY[\s\S]*AI_MODEL/);
-    const config = parseAiConfig({
-      AI_PROVIDER: "openai-compatible",
-      AI_BASE_URL: "https://api.mistral.ai/v1/",
-      AI_API_KEY: "key",
-      AI_MODEL: "mistral-medium-latest",
-    });
-    expect(config).toMatchObject({ AI_BASE_URL: "https://api.mistral.ai/v1", AI_DAILY_LIMIT: 200, AI_TIMEOUT_MS: 120_000 });
-  });
-
-  it("needs the key and model of the Claude API, but no URL", () => {
-    expect(() => parseAiConfig({ AI_PROVIDER: "anthropic" })).toThrow(/AI_API_KEY[\s\S]*AI_MODEL/);
-    expect(parseAiConfig({ AI_PROVIDER: "anthropic", AI_API_KEY: "key", AI_MODEL: "claude-opus-5-5" })).toEqual({
-      AI_PROVIDER: "anthropic",
-      AI_API_KEY: "key",
-      AI_MODEL: "claude-opus-5-5",
-      AI_DAILY_LIMIT: 200,
-      AI_TIMEOUT_MS: 120_000,
-    });
+describe("parseAiLimitsConfig", () => {
+  it("limits drafts per day and their time, and switches on the fake model only with AI_PROVIDER=fake", () => {
+    expect(parseAiLimitsConfig({})).toEqual({ AI_DAILY_LIMIT: 200, AI_TIMEOUT_MS: 120_000, AI_FAKE: false });
+    expect(parseAiLimitsConfig({ AI_PROVIDER: "fake", AI_DAILY_LIMIT: "5" })).toMatchObject({ AI_DAILY_LIMIT: 5, AI_FAKE: true });
+    expect(parseAiLimitsConfig({ AI_PROVIDER: "anthropic" }).AI_FAKE).toBe(false);
+    expect(() => parseAiLimitsConfig({ AI_TIMEOUT_MS: "soon" })).toThrow(/AI_TIMEOUT_MS/);
   });
 });
 
-describe("parseWebhookConfig", () => {
-  it("is off without a URL", () => {
-    expect(parseWebhookConfig({})).toEqual({ WEBHOOK_URL: undefined, WEBHOOK_SECRET: undefined });
-    expect(parseWebhookConfig({ WEBHOOK_URL: "https://hooks.example.org/library", WEBHOOK_SECRET: "a-long-enough-secret" })).toMatchObject({
-      WEBHOOK_URL: "https://hooks.example.org/library",
-    });
-  });
-
-  it("needs a signing secret of at least 16 characters with a URL", () => {
-    expect(() => parseWebhookConfig({ WEBHOOK_URL: "https://hooks.example.org/library" })).toThrow(/WEBHOOK_SECRET: is required with WEBHOOK_URL/);
-    expect(() => parseWebhookConfig({ WEBHOOK_URL: "https://hooks.example.org/library", WEBHOOK_SECRET: "short" })).toThrow(/WEBHOOK_SECRET/);
+describe("parseSettingsSecretConfig", () => {
+  it("is optional, so a worker started with an older Compose file still starts", () => {
+    expect(parseSettingsSecretConfig({}).BETTER_AUTH_SECRET).toBeUndefined();
+    expect(parseSettingsSecretConfig({ BETTER_AUTH_SECRET: "x".repeat(32) }).BETTER_AUTH_SECRET).toBe("x".repeat(32));
+    expect(() => parseSettingsSecretConfig({ BETTER_AUTH_SECRET: "short" })).toThrow(/BETTER_AUTH_SECRET/);
+    expect(() => parseSettingsSecretConfig({ BETTER_AUTH_SECRET: "development-secret-development-secret", NODE_ENV: "production" })).toThrow(/example value/);
   });
 });
 
@@ -295,51 +248,6 @@ describe("parseErrorReportingConfig", () => {
     );
     expect(() => parseErrorReportingConfig({ SENTRY_DSN: "key@o1" })).toThrow(/SENTRY_DSN/);
     expect(() => validateWorkerConfig({ SENTRY_DSN: "key@o1" })).toThrow(/SENTRY_DSN/);
-  });
-});
-
-describe("parseSlackIntakeConfig", () => {
-  it("is off without a signing secret", () => {
-    expect(parseSlackIntakeConfig({ SLACK_SIGNING_SECRET: " " }).SLACK_SIGNING_SECRET).toBeUndefined();
-    expect(parseSlackIntakeConfig({ SLACK_SIGNING_SECRET: "8f742231b10e8888abcd99yyyzzz85a5" }).SLACK_SIGNING_SECRET).toBe("8f742231b10e8888abcd99yyyzzz85a5");
-  });
-});
-
-describe("parseDigestConfig", () => {
-  it("takes a Slack channel ID, not a channel name or a direct message", () => {
-    expect(parseDigestConfig({}).DIGEST_SLACK_CHANNEL_ID).toBeUndefined();
-    expect(parseDigestConfig({ DIGEST_SLACK_CHANNEL_ID: "C0123456789" }).DIGEST_SLACK_CHANNEL_ID).toBe("C0123456789");
-    expect(() => parseDigestConfig({ DIGEST_SLACK_CHANNEL_ID: "#library" })).toThrow(/DIGEST_SLACK_CHANNEL_ID/);
-    expect(() => parseDigestConfig({ DIGEST_SLACK_CHANNEL_ID: "D0123456789" })).toThrow(/DIGEST_SLACK_CHANNEL_ID/);
-    expect(() => validateWorkerConfig({ DIGEST_SLACK_CHANNEL_ID: "library" })).toThrow(/DIGEST_SLACK_CHANNEL_ID/);
-  });
-
-  it("takes one email address for the newsletter", () => {
-    expect(parseDigestConfig({ DIGEST_EMAIL_TO: "All-Staff@Example.org" }).DIGEST_EMAIL_TO).toBe("all-staff@example.org");
-    expect(() => parseDigestConfig({ DIGEST_EMAIL_TO: "all staff" })).toThrow(/DIGEST_EMAIL_TO/);
-  });
-});
-
-describe("parseEmailIntakeConfig", () => {
-  it("is off without a URL and reads INBOX by default", () => {
-    expect(parseEmailIntakeConfig({})).toEqual({
-      EMAIL_INTAKE_IMAP_URL: undefined,
-      EMAIL_INTAKE_MAILBOX: "INBOX",
-      EMAIL_INTAKE_DOMAINS: [],
-      EMAIL_INTAKE_DONE_MAILBOX: undefined,
-    });
-  });
-
-  it("needs credentials in the URL and the allowed sender domains", () => {
-    const url = "imaps://library%40example.org:p%40ss@imap.example.org:993";
-    expect(parseEmailIntakeConfig({ EMAIL_INTAKE_IMAP_URL: url, EMAIL_INTAKE_DOMAINS: "Example.org, @staff.example.org" }).EMAIL_INTAKE_DOMAINS).toEqual([
-      "example.org",
-      "staff.example.org",
-    ]);
-    expect(() => parseEmailIntakeConfig({ EMAIL_INTAKE_IMAP_URL: url })).toThrow(/EMAIL_INTAKE_DOMAINS: is required/);
-    expect(() => parseEmailIntakeConfig({ EMAIL_INTAKE_IMAP_URL: "imaps://imap.example.org", EMAIL_INTAKE_DOMAINS: "example.org" })).toThrow(/user and password/);
-    expect(() => parseEmailIntakeConfig({ EMAIL_INTAKE_IMAP_URL: "https://imap.example.org", EMAIL_INTAKE_DOMAINS: "example.org" })).toThrow(/imaps/);
-    expect(() => parseEmailIntakeConfig({ EMAIL_INTAKE_DOMAINS: "not a domain" })).toThrow(/EMAIL_INTAKE_DOMAINS/);
   });
 });
 

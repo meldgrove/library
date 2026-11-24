@@ -4,6 +4,8 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import type { Pool } from "pg";
 import { getDatabaseConfig } from "@/lib/config";
 import { createDb, createPool } from "@/lib/db/client";
+import { importAtStart } from "@/lib/settings/legacy-env";
+import { getSettingsKey } from "@/lib/settings/secret-box";
 import { envValue } from "@/lib/env";
 import { errorMessage, logger } from "@/lib/logger";
 
@@ -29,6 +31,11 @@ async function main() {
     const migrationsFolder = envValue("MIGRATIONS_DIR") ?? path.resolve(process.cwd(), "drizzle");
     await migrate(createDb(pool), { migrationsFolder });
     logger.info({ migrationsFolder }, "migrations applied");
+    // Old variables passed to migrate go into the database once. A failure
+    // must not keep web and worker from starting.
+    await importAtStart(createDb(pool), getSettingsKey(), "migrate").catch((error: unknown) =>
+      logger.error({ err: error }, "old variables could not be copied into the database"),
+    );
   } finally {
     await pool.end();
   }

@@ -11,7 +11,7 @@ import { connectTestDatabase } from "../../../tests/integration/db";
 import { seedDirectory } from "../../../tests/integration/seed";
 import { viewerOf } from "./access";
 import { createFakeModel, type DraftModel } from "./draft";
-import { MAX_ATTEMPTS, processNext, type PipelineDeps } from "./pipeline";
+import { MAX_ATTEMPTS, processNext, WAITING_FOR_AI_MODEL, type PipelineDeps } from "./pipeline";
 import { maintenanceQueues } from "./review";
 import { listMySubmissions, submitFile, submitLink } from "./submissions";
 import { ensureDefaultDocumentTypes, importTaxonomy } from "./taxonomy";
@@ -111,6 +111,19 @@ describe("pipeline", () => {
     expect(deliveries[0]!.message.path).toBe(`/n/${created!.number}`);
     const actions = (await db.select({ action: auditEvent.action }).from(auditEvent)).map((e) => e.action);
     expect(actions).toEqual(expect.arrayContaining(["submission.received", "note.drafted"]));
+  });
+
+  it("waits at the draft while no AI model is set up, then drafts with the model set up later", async () => {
+    const { submissionId } = await upload("study.pdf", await fixture("study.pdf"));
+    let model: DraftModel | null = null;
+    const current = deps({ model: async () => model });
+    expect(await processNext(current)).toBe("waiting");
+    const waiting = await statusOf(submissionId);
+    expect(waiting).toMatchObject({ status: "received", statusReason: WAITING_FOR_AI_MODEL, attempts: 0 });
+    expect(waiting.nextAttemptAt.getTime()).toBeGreaterThan(Date.now());
+    // The text is kept; once a model is set up, the next run drafts.
+    model = createFakeModel();
+    expect(await processNext(current, new Date(Date.now() + 10 * 60_000))).toBe("drafted");
   });
 
   it("stores each original once and links a second upload to the existing note", async () => {

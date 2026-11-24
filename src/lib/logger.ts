@@ -1,14 +1,30 @@
 import pino, { type DestinationStream } from "pino";
 import { databaseErrorSummary, type ErrorDetails } from "./db/error-summary";
 import { envValue } from "./env";
+import { logTarget } from "./log-target";
 
-/** JSON logs to stdout, for the container logs. */
-export function createLogger(destination?: DestinationStream) {
+/** JSON logs to stdout, for the container logs; to stderr in the operator command, whose stdout is its output. */
+export function createLogger(destination: DestinationStream | undefined = logTarget() === "stderr" ? pino.destination({ dest: 2, sync: true }) : undefined) {
   return pino({
     level: envValue("LOG_LEVEL") ?? (process.env.NODE_ENV === "test" ? "silent" : "info"),
     base: { service: envValue("LIBRARY_PROCESS") ?? "web" },
     redact: {
-      paths: ["*.password", "*.secret", "*.token", "*.accessToken", "*.refreshToken", "*.idToken", "*.authorization"],
+      paths: [
+        "*.password",
+        "*.secret",
+        "*.token",
+        "*.accessToken",
+        "*.refreshToken",
+        "*.idToken",
+        "*.authorization",
+        // The secret fields of the settings' bodies (src/lib/settings/definitions.ts).
+        "*.botToken",
+        "*.signingSecret",
+        "*.smtpUrl",
+        "*.mailersendToken",
+        "*.apiKey",
+        "*.imapUrl",
+      ],
       censor: "[redacted]",
     },
     serializers: { err: serializeError },

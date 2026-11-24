@@ -12,6 +12,8 @@ await build({
     "directory-sync": "src/scripts/directory-sync.ts",
     "taxonomy-import": "src/scripts/taxonomy-import.ts",
     replay: "src/scripts/replay.ts",
+    // The operator command: `cli` in the image (docker-cli.sh).
+    cli: "src/cli/main.ts",
   },
   outdir: "dist",
   outExtension: { ".js": ".mjs" },

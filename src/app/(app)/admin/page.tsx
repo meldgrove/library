@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@meld
 import { PageHeader } from "@meldgrove/ui/page";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@meldgrove/ui/table";
 import { UpdatesSettings } from "@meldgrove/ui/updates";
-import { CircleAlert, Users, UsersRound } from "lucide-react";
+import { CircleAlert, Plug, Users, UsersRound } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getFormatter, requireAdmin } from "@/lib/auth/session";
@@ -19,6 +19,7 @@ import { countPendingCleanups } from "@/lib/library/originals";
 import { openProblemCount } from "@/lib/library/pipeline";
 import { getWebhookStatus } from "@/lib/webhook/sync";
 import { getNotificationStatus } from "@/lib/notifications/queries";
+import { leftoverVariables } from "@/lib/settings/legacy-env";
 import type { ChannelMode } from "@/lib/notifications/types";
 import { SyncNowForm } from "./sync-now-form";
 
@@ -35,13 +36,14 @@ export default async function AdminPage() {
   await requireAdmin();
   const fmt = await getFormatter();
   const sync = getDirectory().sync;
-  const [status, notifications, openUploads, problems, webhook, pendingCleanups] = await Promise.all([
+  const [status, notifications, openUploads, problems, webhook, pendingCleanups, leftovers] = await Promise.all([
     getDirectoryStatus(getDb()),
     getNotificationStatus(getDb()),
     countOpenSubmissions(getDb()),
     openProblemCount(getDb()),
     getWebhookStatus(getDb()),
     countPendingCleanups(getDb()),
+    leftoverVariables(getDb()),
   ]);
   const channels = status.workerHeartbeat?.channels;
   const lastRun = status.recentRuns[0];
@@ -55,6 +57,12 @@ export default async function AdminPage() {
         description="The worker, people and teams, notifications, the webhook, and updates."
         actions={
           <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link href="/admin/integrations">
+                <Plug aria-hidden="true" />
+                Integrations
+              </Link>
+            </Button>
             <Button asChild variant="outline" size="sm">
               <Link href="/admin/people">
                 <Users aria-hidden="true" />
@@ -70,6 +78,26 @@ export default async function AdminPage() {
           </div>
         }
       />
+
+      {channels?.settings === "environment" ? (
+        <Alert variant="destructive">
+          <CircleAlert aria-hidden="true" />
+          <AlertDescription>
+            The worker has no BETTER_AUTH_SECRET (a compose.yaml of version 0.3.2 or earlier), so it reads the old variables from .env instead
+            of the settings under <Link className="underline underline-offset-2" href="/admin/integrations">Integrations</Link>. Update
+            compose.yaml on the server.
+          </AlertDescription>
+        </Alert>
+      ) : leftovers.length > 0 ? (
+        <Alert>
+          <CircleAlert aria-hidden="true" />
+          <AlertDescription>
+            {leftovers.map(({ variable }) => variable).join(", ")} {leftovers.length === 1 ? "is" : "are"} still set on the server. The
+            library keeps these settings under <Link className="underline underline-offset-2" href="/admin/integrations">Integrations</Link>{" "}
+            now: delete {leftovers.length === 1 ? "it" : "them"} from .env.
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -162,8 +190,8 @@ export default async function AdminPage() {
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
           <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
-            <Fact label="Slack" value={<ChannelBadge mode={channels?.slack} variable="SLACK_BOT_TOKEN" />} />
-            <Fact label="Email" value={<ChannelBadge mode={channels?.email} variable="SMTP_URL or MAILERSEND_API_TOKEN, and MAIL_FROM," />} />
+            <Fact label="Slack" value={<ChannelBadge mode={channels?.slack} />} />
+            <Fact label="Email" value={<ChannelBadge mode={channels?.email} />} />
           </dl>
 
           {notifications.failedTotal > 0 ? (
@@ -276,6 +304,7 @@ export default async function AdminPage() {
         </CardHeader>
         <CardContent>
           <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+            <Fact label="AI model" value={<ChannelBadge mode={channels?.ai} off="Uploads wait at the draft." />} />
             <Fact label="Waiting for the worker" value={String(openUploads)} />
             <Fact
               label="On hold (quarantined or parked)"
@@ -299,7 +328,7 @@ export default async function AdminPage() {
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
           <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
-            <Fact label="Webhook" value={<ChannelBadge mode={channels?.webhook} variable="WEBHOOK_URL and WEBHOOK_SECRET" />} />
+            <Fact label="Webhook" value={<ChannelBadge mode={channels?.webhook} />} />
             <Fact label="Notes delivered" value={String(webhook.delivered)} />
             <Fact label="Waiting" value={String(webhook.waiting)} />
             <Fact label="Last sent" value={fmt.dateTime(webhook.lastDeliveredAt)} />
@@ -396,14 +425,20 @@ function Fact({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function ChannelBadge({ mode, variable }: { mode: ChannelMode | undefined; variable: string }) {
+function ChannelBadge({ mode, off }: { mode: ChannelMode | undefined; off?: string }) {
   if (mode === undefined) return <span className="text-muted-foreground">Unknown until the worker reports</span>;
   if (mode === "live") return <Badge variant="secondary">On</Badge>;
   if (mode === "console") return <Badge variant="outline">Log only (development)</Badge>;
   return (
     <span className="flex flex-wrap items-center gap-2">
       <Badge variant="destructive">Off</Badge>
-      <span className="text-muted-foreground">Set {variable} for the worker.</span>
+      <span className="text-muted-foreground">
+        {off ? `${off} ` : ""}Set it up under{" "}
+        <Link className="underline underline-offset-2" href="/admin/integrations">
+          Integrations
+        </Link>
+        .
+      </span>
     </span>
   );
 }

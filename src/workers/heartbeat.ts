@@ -12,7 +12,7 @@ export { DEFAULT_HEARTBEAT_FILE, HEARTBEAT_INTERVAL_MS } from "./heartbeat-file"
  * Writes a heartbeat every 30 seconds: to a file, which the container health
  * check reads, and to the database, which the admin page shows.
  */
-export function startHeartbeat(options: { db: Database; workerId: string; file: string; channels: NotificationChannels }): () => void {
+export function startHeartbeat(options: { db: Database; workerId: string; file: string; channels: () => Promise<NotificationChannels> }): () => void {
   const startedAt = new Date();
 
   async function beat() {
@@ -23,10 +23,12 @@ export function startHeartbeat(options: { db: Database; workerId: string; file: 
       logger.warn({ error: errorMessage(error) }, "could not write the heartbeat file");
     }
     try {
+      // The channels follow the settings, which admins change while the worker runs.
+      const channels = await options.channels();
       await options.db
         .insert(workerHeartbeat)
-        .values({ workerId: options.workerId, startedAt, beatAt: now, channels: options.channels })
-        .onConflictDoUpdate({ target: workerHeartbeat.workerId, set: { startedAt, beatAt: now, channels: options.channels } });
+        .values({ workerId: options.workerId, startedAt, beatAt: now, channels })
+        .onConflictDoUpdate({ target: workerHeartbeat.workerId, set: { startedAt, beatAt: now, channels } });
     } catch (error) {
       logger.warn({ error: errorMessage(error) }, "could not write the heartbeat to the database");
     }

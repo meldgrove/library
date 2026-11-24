@@ -275,13 +275,19 @@ export async function dispatchDue(
   return counts;
 }
 
-/** Polls for due deliveries every `intervalMs`. Returns a function that stops and waits for the current run. */
-export function startDispatcher(options: { db: Database; transports: Transports; intervalMs: number }): () => Promise<void> {
+/**
+ * Polls for due deliveries every `intervalMs`, with the transports of the
+ * settings at that moment. Returns a function that stops and waits for the
+ * current run.
+ */
+export function startDispatcher(options: { db: Database; transports: () => Promise<Transports>; intervalMs: number }): () => Promise<void> {
   let running: Promise<unknown> | undefined;
   let stopped = false;
   const tick = () => {
     if (running || stopped) return;
-    running = dispatchDue(options.db, options.transports)
+    running = options
+      .transports()
+      .then((transports) => dispatchDue(options.db, transports))
       .catch((error: unknown) => logger.error({ error: errorMessage(error) }, "notification dispatch failed"))
       .finally(() => {
         running = undefined;

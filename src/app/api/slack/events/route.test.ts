@@ -4,7 +4,7 @@ import { slackSignature } from "@/lib/slack/signature";
 const SECRET = "test-signing-secret";
 const mocks = vi.hoisted(() => ({ recordSlackEvent: vi.fn(), secret: "test-signing-secret" as string | undefined }));
 
-vi.mock("@/lib/config", () => ({ getSlackIntakeConfig: () => ({ SLACK_SIGNING_SECRET: mocks.secret }) }));
+vi.mock("@/lib/settings/process", () => ({ readSlackSigningSecret: async () => mocks.secret ?? null }));
 vi.mock("@/lib/db/client", () => ({ getDb: () => ({}) }));
 vi.mock("@/lib/library/slack-intake", async (importOriginal) => ({ ...(await importOriginal<object>()), recordSlackEvent: mocks.recordSlackEvent }));
 

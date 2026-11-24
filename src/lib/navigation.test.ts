@@ -47,6 +47,7 @@ describe("breadcrumbsFor", () => {
     ["/maintenance/taxonomy", [{ label: "Maintenance", href: "/maintenance" }, { label: "Taxonomy" }]],
     ["/admin", [{ label: "Admin" }]],
     ["/admin/people", [{ label: "Admin", href: "/admin" }, { label: "People" }]],
+    ["/admin/integrations", [{ label: "Admin", href: "/admin" }, { label: "Integrations" }]],
     ["/settings", [{ label: "Settings" }]],
     ["/nowhere", []],
   ])("%s", (pathname, crumbs) => {

@@ -17,6 +17,11 @@ case "$role" in
   directory-sync)
     exec node dist/directory-sync.mjs
     ;;
+  cli)
+    # The operator command (docs/deployment.md, Settings from the command line).
+    shift
+    exec node dist/cli.mjs "$@"
+    ;;
   *)
     exec "$@"
     ;;

@@ -51,6 +51,14 @@ API (`@anthropic-ai/sdk`) or any OpenAI-compatible chat completions API.
   client, which Slack errors are permanent for the bot and the
   notifications alike), `email` (IMAP), `updates` (the updater's API behind
   the admins' update button, `src/app/api/admin/updates`).
+- `src/lib/settings/`: the settings of Admin › Integrations (AI model,
+  email, Slack, digest, webhook, email intake) in `app_setting`:
+  `definitions.ts` (fields and rules), `service.ts` (the one way to read and
+  save, used by the page and `cli`), `secret-box.ts` (secrets sealed with a
+  key from `BETTER_AUTH_SECRET`), `legacy-env.ts` (the variables they were
+  until 0.3.2: imported once), `runtime.ts` (read at each use), `tests.ts`.
+- `src/cli/`: the operator command `cli settings …` (`docker-cli.sh`); only
+  it creates the `operator` principal.
 - `src/workers/`: the pg-boss worker. `src/scripts/`: migrate, directory
   sync, taxonomy import, replay. Both are bundled with esbuild into `dist/`
   (`scripts/build-scripts.mjs`).
@@ -114,6 +122,10 @@ API (`@anthropic-ai/sdk`) or any OpenAI-compatible chat completions API.
   redirect to the same page shows stale data.
 - Change the schema in `src/lib/db/schema.ts`, then run `npm run db:generate`
   and commit the migration. CI fails if they differ.
+- Outside services are settings in the database, never environment
+  variables: read them through `src/lib/settings/` at each use, and save them
+  only with `applySetting`, which the admin page and `cli settings` share.
+  Secrets are sealed, shown only as hints, and taken by `cli` only on stdin.
 - Read application settings only through `src/lib/config.ts`, and
   operational settings (`LOG_LEVEL`, `LIBRARY_PROCESS`,
   `WORKER_HEARTBEAT_FILE`, `MIGRATIONS_DIR`) through `envValue()` in
@@ -135,6 +147,7 @@ npm run directory:sync                     # the Keycloak test users into the da
 npm run dev:seed                           # optional: example notes (dev/seed-demo.ts)
 npm run dev                                # http://localhost:3000, users erika / maya / adam / olga, password library-dev
 npm run worker                             # pg-boss worker in a second terminal
+npm run cli -- settings list               # the operator command (docs/deployment.md)
 
 npm run lint
 npm run typecheck
