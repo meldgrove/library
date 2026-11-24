@@ -72,7 +72,7 @@ describe("cli settings", () => {
       "email         set         MailerSend token …6789, from Meldgrove Library <library@example.org>",
       "slack         set         bot token …abcd, no signing secret (the Slack bot is off)",
       "digest        set         email all-staff@example.org",
-      "webhook       set         https://hooks.example.org/library, secret …6789",
+      "webhook       set         https://hooks.example.org/…, secret …6789",
       "email-intake  set         imaps://…@imap.example.org:993, mailbox INBOX, domains example.org",
     ]);
     const rows = JSON.parse((await cli(["settings", "list", "--json"])).out) as { name: string; state: string; oldVariables: unknown[] }[];
