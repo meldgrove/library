@@ -1,3 +1,4 @@
+import nodemailer from "nodemailer";
 import { describe, expect, it, vi } from "vitest";
 import { createDateFormatter, dateToken } from "@/lib/format";
 import { emailContent, slackText } from "./format-message";
@@ -199,6 +200,17 @@ describe("SMTP", () => {
       text: "T",
       html: "<p>T</p>",
     });
+  });
+
+  it("never gives nodemailer an option that runs a program, whatever URL is stored", async () => {
+    const { createTransport, created } = fakeNodemailer(async () => ({ messageId: "1" }));
+    const url = "smtp://user:p%40ss@mail.example.org:587?sendmail=true&path=/usr/bin/id&requireTLS=true";
+    createSmtpTransport({ url, from: "library@example.org", fromName: "Meldgrove Library" }, createTransport);
+    expect(created[0]).toMatchObject({ url: "smtp://user:p%40ss@mail.example.org:587?requireTLS=true" });
+    // The real nodemailer: the stored URL would select its Sendmail transport, the one it gets selects SMTP.
+    const selected = (value: string) => (nodemailer.createTransport({ url: value }) as unknown as { transporter: { name: string } }).transporter.name;
+    expect(selected(url)).toBe("Sendmail");
+    expect(selected((created[0] as { url: string }).url)).toBe("SMTP");
   });
 
   it("reports a rejected email with the server's reply code", async () => {

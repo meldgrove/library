@@ -27,6 +27,11 @@ describe("legacyValues", () => {
     });
   });
 
+  it("leaves out SMTP URL options that no longer count, and keeps the rest", () => {
+    const env = { SMTP_URL: "smtp://u:p@mail.example.org:587?logger=true&requireTLS=true&sendmail=true&path=/x", MAIL_FROM: "library@example.org" };
+    expect(legacyValues("email", env)).toMatchObject({ state: "set", values: { smtpUrl: "smtp://u:p@mail.example.org:587?requireTLS=true" } });
+  });
+
   it("leaves a setting off when its old variables are not valid", () => {
     expect(legacyValues("webhook", { WEBHOOK_URL: "https://hooks.example.org", WEBHOOK_SECRET: "short" }).state).toBe("not set");
     expect(legacyValues("digest", {}).state).toBe("not set");
