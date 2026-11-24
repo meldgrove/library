@@ -304,7 +304,7 @@ export default async function AdminPage() {
         </CardHeader>
         <CardContent>
           <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
-            <Fact label="AI model" value={<ChannelBadge mode={channels?.ai} off="Uploads wait at the draft." />} />
+            <Fact label="AI model" value={<ChannelBadge mode={channels?.ai} off="Uploads wait at the draft." console="Fake model (development)" />} />
             <Fact label="Waiting for the worker" value={String(openUploads)} />
             <Fact
               label="On hold (quarantined or parked)"
@@ -425,10 +425,10 @@ function Fact({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function ChannelBadge({ mode, off }: { mode: ChannelMode | undefined; off?: string }) {
+function ChannelBadge({ mode, off, console = "Log only (development)" }: { mode: ChannelMode | undefined; off?: string; console?: string }) {
   if (mode === undefined) return <span className="text-muted-foreground">Unknown until the worker reports</span>;
   if (mode === "live") return <Badge variant="secondary">On</Badge>;
-  if (mode === "console") return <Badge variant="outline">Log only (development)</Badge>;
+  if (mode === "console") return <Badge variant="outline">{console}</Badge>;
   return (
     <span className="flex flex-wrap items-center gap-2">
       <Badge variant="destructive">Off</Badge>

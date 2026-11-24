@@ -21,8 +21,8 @@ const PAGE: Record<SettingName, { description: string; fields: IntegrationField[
     description:
       "The model that drafts a note for each upload: Anthropic's Claude API, or any OpenAI-compatible chat completions API (Mistral, OpenAI, Azure OpenAI, a self-hosted model). Until one is set up, uploads wait at the draft.",
     fields: [
-      { name: "provider", label: "Provider", kind: "choice", options: [{ value: "anthropic", label: "Anthropic" }, { value: "openai-compatible", label: "OpenAI-compatible API" }] },
-      { name: "apiKey", label: "API key", kind: "secret", required: true, showWhen: undefined },
+      { name: "provider", label: "Provider", kind: "choice", required: true, options: [{ value: "anthropic", label: "Anthropic" }, { value: "openai-compatible", label: "OpenAI-compatible API" }] },
+      { name: "apiKey", label: "API key", kind: "secret", required: true },
       { name: "model", label: "Model", kind: "text", required: true, placeholder: "claude-opus-5-5", hint: "For example claude-opus-5-5, or mistral-medium-latest for Mistral." },
       { name: "baseUrl", label: "Base URL", kind: "text", required: true, placeholder: "https://api.mistral.ai/v1", hint: "Up to and including /v1.", showWhen: { field: "provider", value: "openai-compatible" } },
     ],
@@ -30,7 +30,7 @@ const PAGE: Record<SettingName, { description: string; fields: IntegrationField[
   email: {
     description: "Emails about drafts, uploads on hold, reminders and digests: over SMTP or MailerSend's API.",
     fields: [
-      { name: "provider", label: "Provider", kind: "choice", options: [{ value: "smtp", label: "SMTP" }, { value: "mailersend", label: "MailerSend" }] },
+      { name: "provider", label: "Provider", kind: "choice", required: true, options: [{ value: "smtp", label: "SMTP" }, { value: "mailersend", label: "MailerSend" }] },
       {
         name: "smtpUrl",
         label: "SMTP URL",
@@ -93,7 +93,7 @@ export default async function IntegrationsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Integrations"
-        description="The services the library works with. Operators can set the same settings on the server with `cli settings` (docs/deployment.md)."
+        description="The services the library works with. Operators set the same settings on the server with the command cli settings (see docs/deployment.md)."
       />
 
       {workerMode === "environment" ? (
