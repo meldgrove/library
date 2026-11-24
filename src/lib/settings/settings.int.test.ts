@@ -251,15 +251,25 @@ describe("tests", () => {
     const emailTransport = (): EmailTransport => ({ mode: "live", kind: "smtp", send: async (email) => void sent.push(email) });
     await expect(testSetting(db, key, "email", {}, { emailTransport })).rejects.toBeInstanceOf(CommandError);
     // A server answer that repeats the password does not reach the page or the command.
-    const echoing = (): EmailTransport => ({
+    const failing = (error: DeliveryError) => (): EmailTransport => ({
       mode: "live",
       kind: "smtp",
       send: async () => {
-        throw new DeliveryError("SMTP 535: authentication failed for library / smtp-password-7777");
+        throw error;
       },
     });
-    const failed = await testSetting(db, key, "email", { to: "ada@example.org" }, { emailTransport: echoing });
-    expect(failed).toEqual({ ok: false, message: "The email was not sent. SMTP 535: authentication failed for **** / ****" });
+    const to = { to: "ada@example.org" };
+    expect(await testSetting(db, key, "email", to, { emailTransport: failing(new DeliveryError("SMTP 550: mailbox pw smtp-password-7777 unknown")) })).toEqual({
+      ok: false,
+      message: "The email was not sent: the server answered 550.",
+    });
+    expect(await testSetting(db, key, "email", to, { emailTransport: failing(new DeliveryError("SMTP 535: no for library:x", { code: "EAUTH" })) })).toEqual({
+      ok: false,
+      message: "The email was not sent: the mail server refused the user or password.",
+    });
+    expect((await testSetting(db, key, "email", to, { emailTransport: failing(new DeliveryError("ECONNREFUSED: x", { code: "ECONNECTION" })) })).message).toBe(
+      "The email was not sent: the mail server could not be reached (ECONNECTION).",
+    );
     expect(await testSetting(db, key, "email", { to: "ada@example.org" }, { emailTransport })).toEqual({ ok: true, message: "Sent a test email to ada@example.org with SMTP." });
     expect(sent).toEqual([expect.objectContaining({ to: "ada@example.org", subject: "Test email from Meldgrove Library" })]);
   });

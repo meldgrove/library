@@ -32,19 +32,17 @@ export interface TestDeps {
   checkModel?: typeof checkDraftModel;
 }
 
-/** The user and password of a URL, as written and decoded. */
-function urlSecrets(value: string): string[] {
-  try {
-    const url = new URL(value);
-    return [url.username, url.password].flatMap((part) => [part, decodeURIComponent(part)]);
-  } catch {
-    return [value];
-  }
-}
-
-/** The text with every secret (of at least 4 characters) replaced. */
-function redact(text: string, secrets: string[]): string {
-  return secrets.filter((secret) => secret.length >= 4).reduce((result, secret) => result.split(secret).join("****"), text);
+/**
+ * Why the test email failed, from the status or error code only: a mail
+ * server's own text could repeat the credentials it got.
+ */
+function emailFailure(error: unknown): string {
+  if (!(error instanceof DeliveryError)) return "The email was not sent.";
+  if (error.code === "EAUTH") return "The email was not sent: the mail server refused the user or password.";
+  const status = /^(?:SMTP|MailerSend: HTTP) (\d{3})\b/.exec(error.message)?.[1];
+  if (status) return `The email was not sent: the server answered ${status}.`;
+  if (error.code && /^[A-Z_]+$/.test(error.code)) return `The email was not sent: the mail server could not be reached (${error.code}).`;
+  return "The email was not sent: the mail server could not be reached.";
 }
 
 const notSet = (what: string): CheckResult => ({ ok: false, message: `${what} is not set up yet: save the setting first.` });
@@ -74,10 +72,7 @@ export async function testSetting(db: Database, key: Buffer, name: SettingName, 
           html: "<p>This email tests the email settings of Meldgrove Library. Nothing else needs to be done.</p>",
         });
       } catch (error) {
-        // A mail server's answer could repeat what it got: never show the saved secrets.
-        const secrets = email.provider === "smtp" ? urlSecrets(email.smtpUrl) : [email.token];
-        const detail = error instanceof DeliveryError ? ` ${redact(error.message, secrets)}` : "";
-        return { ok: false, message: `The email was not sent.${detail}` };
+        return { ok: false, message: emailFailure(error) };
       }
       return { ok: true, message: `Sent a test email to ${address.data} with ${email.provider === "smtp" ? "SMTP" : "MailerSend"}.` };
     }
