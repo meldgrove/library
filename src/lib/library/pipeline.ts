@@ -38,7 +38,11 @@ export interface PipelineDeps {
   db: Database;
   /** Null when storage is off: a file behind a link then keeps only its text. */
   storage: Storage | null;
-  model: DraftModel;
+  /**
+   * The AI model, or how to get the current one (the worker reads the `ai`
+   * setting each time). Null while none is set up: uploads wait.
+   */
+  model: DraftModel | (() => Promise<DraftModel | null>);
   ocr: OcrOptions;
   maxBytes: number;
   /** Drafts per day across all uploads. */
@@ -51,6 +55,10 @@ export type ProcessOutcome = Exclude<SubmissionStatus, "received" | "processing"
 
 /** A submission stuck in "processing" this long (the worker stopped) is taken up again. */
 const STALE_PROCESSING_MS = 30 * 60_000;
+/** What uploads say while no AI model is set up; the worker looks again after NO_MODEL_RETRY_MS. */
+export const WAITING_FOR_AI_MODEL = "Waiting for an AI model: an admin sets one up under Admin › Integrations.";
+const NO_MODEL_RETRY_MS = 5 * 60_000;
+
 /** Waits after temporary errors (the AI model or a site cannot be reached). */
 const RETRY_DELAYS_MS = [5 * 60_000, 30 * 60_000];
 export const MAX_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
@@ -283,7 +291,7 @@ async function checkDuplicate(
   throw new Stop("duplicate", DUPLICATE_SUBMISSION_REASON, { noteId: existing.id, matchedSourceId: rememberMatch ? sourceId : undefined });
 }
 
-async function createNote(deps: PipelineDeps, claimed: Claimed, sourceId: string, draft: NoteDraft, now: Date) {
+async function createNote(deps: PipelineDeps, claimed: Claimed, sourceId: string, draft: NoteDraft, now: Date, model: DraftModel) {
   return deps.db.transaction(async (tx) => {
     // The same source, or one with the same DOI, may have been drafted from
     // another upload meanwhile: check again, serialized per DOI.
@@ -313,7 +321,7 @@ async function createNote(deps: PipelineDeps, claimed: Claimed, sourceId: string
       documentTypeId: type?.id ?? null,
       topicAreaId: area?.id ?? null,
       uncertainFields: draft.uncertainFields,
-      draftModel: deps.model.name,
+      draftModel: model.name,
       draftedAt: now,
       searchText: noteSearchText({ keyPoints: draft.keyPoints, quotes: draft.quotes, citation: draft.citation, tagNames: tags.map((t) => t.name) }),
     };
@@ -336,7 +344,7 @@ async function createNote(deps: PipelineDeps, claimed: Claimed, sourceId: string
       action: "note.drafted",
       subjectType: "note",
       subjectId: created!.id,
-      payload: { number: created!.number, submissionId: claimed.id, model: deps.model.name, uncertain: draft.uncertainFields },
+      payload: { number: created!.number, submissionId: claimed.id, model: model.name, uncertain: draft.uncertainFields },
     });
     await notifyPerson(tx, {
       event: "draft_ready",
@@ -428,6 +436,17 @@ export async function processNext(deps: PipelineDeps, now: Date = new Date()): P
     }
     await checkDuplicate(deps.db, sourceId);
 
+    const model = typeof deps.model === "function" ? await deps.model() : deps.model;
+    if (!model) {
+      // Nothing to draft with yet: wait, without counting an attempt or using the budget.
+      await deps.db
+        .update(submission)
+        .set({ status: "received", statusChangedAt: now, statusReason: WAITING_FOR_AI_MODEL, attempts: claimed.attempts - 1, nextAttemptAt: new Date(now.getTime() + NO_MODEL_RETRY_MS) })
+        .where(eq(submission.id, claimed.id));
+      log.info("no AI model is set up; the upload waits");
+      return "waiting";
+    }
+
     try {
       await consumeRateLimit(deps.db, "ai-draft", { limit: deps.dailyDraftLimit, windowSeconds: 86_400 }, now);
     } catch (error) {
@@ -449,7 +468,7 @@ export async function processNext(deps: PipelineDeps, now: Date = new Date()): P
     const lists = await draftLists(deps.db);
     let draft: NoteDraft;
     try {
-      draft = await draftNote(deps.model, {
+      draft = await draftNote(model, {
         text,
         detectedTitle: row?.detectedTitle ?? undefined,
         // The note will be the submitter's.
@@ -462,7 +481,7 @@ export async function processNext(deps: PipelineDeps, now: Date = new Date()): P
       if (error instanceof DraftError) throw new Stop("parked", `The AI draft failed: ${error.message}`);
       throw new Retry(error instanceof DraftProviderError ? error.message : "The AI draft could not be completed.");
     }
-    await createNote(deps, claimed, sourceId, draft, now);
+    await createNote(deps, claimed, sourceId, draft, now, model);
     log.info("note drafted");
     return "drafted";
   } catch (error) {

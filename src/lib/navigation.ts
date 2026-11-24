@@ -4,7 +4,7 @@
  * frame of `@meldgrove/ui`, which marks the current item.
  */
 
-export type NavKey = "library" | "review" | "uploads" | "maintenance" | "taxonomy" | "admin" | "people" | "teams";
+export type NavKey = "library" | "review" | "uploads" | "maintenance" | "taxonomy" | "admin" | "people" | "teams" | "integrations";
 
 export interface NavLink {
   key: NavKey;
@@ -43,6 +43,7 @@ export const ADMIN_NAV: NavLink[] = [
   { key: "admin", href: "/admin", label: "Admin" },
   { key: "people", href: "/admin/people", label: "People" },
   { key: "teams", href: "/admin/teams", label: "Teams" },
+  { key: "integrations", href: "/admin/integrations", label: "Integrations" },
 ];
 
 /** The sidebar of a person: the main pages, then Maintenance for maintainers and Administration for admins. */
@@ -62,7 +63,7 @@ export interface Crumb {
 
 const LIBRARY: Crumb = { label: "Library", href: "/" };
 const MAINTENANCE_PAGES: Record<string, string> = { taxonomy: "Taxonomy" };
-const ADMIN_PAGES: Record<string, string> = { people: "People", teams: "Teams" };
+const ADMIN_PAGES: Record<string, string> = { people: "People", teams: "Teams", integrations: "Integrations" };
 
 /** "LIB-12" for a note path segment such as "12". */
 function noteCrumb(segment: string): string {

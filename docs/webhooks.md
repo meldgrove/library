@@ -1,6 +1,8 @@
 # Webhook
 
-With `WEBHOOK_URL` and `WEBHOOK_SECRET` set, the worker posts published notes
+With a URL and a signing secret set under **Admin → Integrations → Webhook**
+(or with `cli settings apply webhook`,
+[configuration](configuration.md#webhook)), the worker posts published notes
 to that URL as JSON, for example to keep a search index, a knowledge base, or
 an AI assistant up to date. The receiver gets finished notes that a person
 has confirmed; it needs no AI model of its own.
@@ -88,7 +90,7 @@ Every request has these headers:
 | Header | Value |
 |---|---|
 | `Library-Timestamp` | Unix time in seconds when the request was sent |
-| `Library-Signature` | `sha256=` and the hex HMAC-SHA256 of `<timestamp>.<raw body>`, keyed with `WEBHOOK_SECRET` |
+| `Library-Signature` | `sha256=` and the hex HMAC-SHA256 of `<timestamp>.<raw body>`, keyed with the webhook's signing secret |
 | `Library-Delivery` | A random ID of this request |
 
 Check the signature against the raw body before parsing it, compare in

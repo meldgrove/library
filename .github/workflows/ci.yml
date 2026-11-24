@@ -159,11 +159,30 @@ jobs:
     name: Docker image
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: library
+          POSTGRES_PASSWORD: library
+          POSTGRES_DB: library
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U library -d library"
+          --health-interval 5s --health-timeout 3s --health-retries 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: docker build -t library:ci .
       - name: The image runs as a non-root user
         run: test "$(docker run --rm --entrypoint id library:ci -u)" = "1000"
+      - name: The operator command is on the PATH and reads the settings
+        run: |
+          env="-e DATABASE_URL=postgres://library:library@localhost:5432/library -e BETTER_AUTH_SECRET=$(openssl rand -base64 32)"
+          docker run --rm --network host $env library:ci migrate
+          docker run --rm --network host $env --entrypoint cli library:ci settings list | tee list.txt
+          grep -q "^ai  *not set" list.txt
+          echo '{"emailTo":"all-staff@example.org"}' | docker run --rm -i --network host $env --entrypoint cli library:ci settings apply digest | grep -q '"state": "set"'
+
       - name: OCR reads a scanned PDF in the image
         run: |
           docker run --rm --user root --entrypoint sh -v "$PWD/tests/fixtures/files:/fx:ro" library:ci -c '

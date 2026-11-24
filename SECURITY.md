@@ -18,6 +18,11 @@ Security fixes go into the latest release and the `main` branch.
 
 - Generate `BETTER_AUTH_SECRET` with `openssl rand -base64 32`. The library
   refuses to start in production with the example value from `.env.example`.
+  It also seals the secrets of the integrations (AI key, email, Slack,
+  webhook, intake mailbox) in the database, so keep it out of the database
+  backups.
+- Admins see integration secrets only as hints. `cli settings` reads secrets
+  only from stdin, never from arguments, and prints none.
 - Serve the library over HTTPS only, and set `LIBRARY_BASE_URL` to that HTTPS
   URL.
 - The Keycloak service account needs only the `view-users` role of
@@ -33,14 +38,14 @@ Security fixes go into the latest release and the `main` branch.
   [docs/architecture.md](docs/architecture.md#untrusted-content)).
 - The webhook receiver gets notes visible to everyone and notes visible to
   one team (`visibility` in the payload). Use an HTTPS URL, a random
-  `WEBHOOK_SECRET` of at least 32 characters, and check every request's
+  signing secret of at least 32 characters, and check every request's
   signature and timestamp ([docs/webhooks.md](docs/webhooks.md)). A receiver
   that shows notes to people must respect `visibility`.
 - The Slack bot knows people by the email address Slack has confirmed for
   their account. Install the Slack app only in your organization's own
-  workspace, and keep `SLACK_SIGNING_SECRET` and `SLACK_BOT_TOKEN` in a
-  secret store.
+  workspace, and keep its signing secret and bot token in a secret store
+  as well as in the library.
 - The email intake trusts the topmost `Authentication-Results` header. Use a
   mailbox at a provider that adds it on receipt and removes or ranks below it
   any such header a sender wrote; list only your organization's own domains
-  in `EMAIL_INTAKE_DOMAINS`.
+  in the email intake's `domains`.

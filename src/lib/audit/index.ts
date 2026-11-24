@@ -38,9 +38,11 @@ export type AuditAction =
   | "team.renamed"
   | "team.activated"
   | "team.deactivated"
-  | "team.digest_channel_changed";
+  | "team.digest_channel_changed"
+  | "setting.changed"
+  | "setting.imported";
 
-export type AuditSubject = "note" | "submission" | "source" | "tag" | "tag_cluster" | "tag_proposal" | "document_type" | "topic_area" | "person" | "team";
+export type AuditSubject = "note" | "submission" | "source" | "tag" | "tag_cluster" | "tag_proposal" | "document_type" | "topic_area" | "person" | "team" | "setting";
 
 /** Appends an audit event in the caller's transaction. Rows are never changed or deleted. */
 export async function recordAudit(

@@ -64,3 +64,57 @@ export async function openImapMailbox(options: ImapMailboxOptions): Promise<Inta
     },
   };
 }
+
+/** What the test button of the email intake reports. */
+export interface MailboxCheck {
+  ok: boolean;
+  message: string;
+}
+
+interface ImapError extends Error {
+  authenticationFailed?: boolean;
+  code?: string;
+  responseStatus?: string;
+}
+
+/**
+ * The test of the `email-intake` setting: signs in, and reads the counts of
+ * the mailbox (and checks the done mailbox). Reads and moves no message.
+ */
+export async function checkImapMailbox(
+  options: { url: string; mailbox: string; doneMailbox?: string },
+  createClient: (config: ConstructorParameters<typeof ImapFlow>[0]) => Pick<ImapFlow, "connect" | "status" | "logout"> = (config) => new ImapFlow(config),
+): Promise<MailboxCheck> {
+  const url = new URL(options.url);
+  const secure = url.protocol === "imaps:";
+  const client = createClient({
+    host: url.hostname,
+    port: Number(url.port) || (secure ? 993 : 143),
+    secure,
+    doSTARTTLS: secure ? undefined : true,
+    auth: { user: decodeURIComponent(url.username), pass: decodeURIComponent(url.password) },
+    logger: false,
+    connectionTimeout: 15_000,
+    socketTimeout: 30_000,
+  });
+  let step = "connect";
+  try {
+    await client.connect();
+    step = "mailbox";
+    const status = (await client.status(options.mailbox, { messages: true, unseen: true })) || {};
+    if (options.doneMailbox) {
+      step = "done";
+      await client.status(options.doneMailbox, { messages: true });
+    }
+    const done = options.doneMailbox ? `; handled messages go to ${options.doneMailbox}` : "";
+    return { ok: true, message: `Signed in to ${url.hostname}: ${options.mailbox} has ${"messages" in status ? (status.messages ?? 0) : 0} messages, ${"unseen" in status ? (status.unseen ?? 0) : 0} unseen${done}.` };
+  } catch (error) {
+    const imap = error as ImapError;
+    if (imap.authenticationFailed) return { ok: false, message: `${url.hostname} refused the user or password.` };
+    if (step === "mailbox") return { ok: false, message: `${url.hostname} has no mailbox ${options.mailbox}.` };
+    if (step === "done") return { ok: false, message: `${url.hostname} has no mailbox ${options.doneMailbox} for handled messages.` };
+    return { ok: false, message: `${url.hostname} could not be reached${imap.code ? ` (${imap.code})` : ""}.` };
+  } finally {
+    await client.logout().catch(() => undefined);
+  }
+}

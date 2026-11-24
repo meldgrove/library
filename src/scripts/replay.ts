@@ -1,16 +1,18 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { getAiConfig, getDatabaseConfig, getOcrConfig, getUploadConfig } from "@/lib/config";
+import { getAiLimitsConfig, getDatabaseConfig, getOcrConfig, getUploadConfig } from "@/lib/config";
 import { getDb, getPool } from "@/lib/db/client";
-import { createDraftModel, draftNote } from "@/lib/library/draft";
+import { draftModelFromSettings, draftNote } from "@/lib/library/draft";
 import { detectFileType, extractText } from "@/lib/library/extract";
 import { fetchLink } from "@/lib/library/fetch-link";
 import { replaySetSchema, scoreItem, summarize, type ItemScore } from "@/lib/library/replay";
 import { draftLists } from "@/lib/library/taxonomy";
 import { logger } from "@/lib/logger";
+import { aiValues, createSettingsReader } from "@/lib/settings/runtime";
+import { getSettingsKey } from "@/lib/settings/secret-box";
 
 // The replay test before launch (gate B): drafts every item of a test set with
-// the configured AI model and today's taxonomy, and compares tags, document
+// the AI model of Admin › Integrations and today's taxonomy, and compares tags, document
 // type, and topic area with the known answers. Writes nothing.
 //   npm run replay -- test-set.json
 // The format is in docs/taxonomy.md.
@@ -22,7 +24,13 @@ async function main() {
   }
   getDatabaseConfig();
   const set = replaySetSchema.parse(JSON.parse(await readFile(file, "utf8")));
-  const model = createDraftModel(getAiConfig());
+  const limits = getAiLimitsConfig();
+  const model = draftModelFromSettings(limits.AI_FAKE ? null : aiValues(await createSettingsReader(getDb(), getSettingsKey()).read("ai")), limits);
+  if (!model) {
+    console.error("No AI model is set up: set one under Admin › Integrations, or with `cli settings apply ai`.");
+    await getPool().end();
+    process.exit(1);
+  }
   const ocrConfig = getOcrConfig();
   const ocr = { command: ocrConfig.OCR_COMMAND, languages: ocrConfig.OCR_LANGUAGES };
   const lists = await draftLists(getDb());

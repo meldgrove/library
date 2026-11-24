@@ -22,6 +22,7 @@
     "directory:sync": "LIBRARY_PROCESS=directory-sync tsx --env-file-if-exists=.env.local src/scripts/directory-sync.ts",
     "taxonomy:import": "LIBRARY_PROCESS=taxonomy-import tsx --env-file-if-exists=.env.local src/scripts/taxonomy-import.ts",
     "replay": "LIBRARY_PROCESS=replay tsx --env-file-if-exists=.env.local src/scripts/replay.ts",
+    "cli": "LIBRARY_PROCESS=cli tsx --env-file-if-exists=.env.local src/cli/main.ts",
     "dev:seed": "tsx --env-file-if-exists=.env.local dev/seed-demo.ts"
   },
   "dependencies": {

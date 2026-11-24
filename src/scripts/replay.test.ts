@@ -13,13 +13,15 @@ const mocks = vi.hoisted(() => ({
   end: vi.fn(async () => {}),
 }));
 vi.mock("@/lib/config", () => ({
-  getAiConfig: () => ({}),
+  getAiLimitsConfig: () => ({ AI_FAKE: true, AI_TIMEOUT_MS: 1_000 }),
   getDatabaseConfig: () => ({}),
   getOcrConfig: () => ({ OCR_LANGUAGES: "eng" }),
   getUploadConfig: () => ({ UPLOAD_MAX_MB: 1 }),
 }));
 vi.mock("@/lib/db/client", () => ({ getDb: () => ({}), getPool: () => ({ end: mocks.end }) }));
-vi.mock("@/lib/library/draft", () => ({ createDraftModel: () => ({}), draftNote: mocks.draftNote }));
+vi.mock("@/lib/library/draft", () => ({ draftModelFromSettings: () => ({}), draftNote: mocks.draftNote }));
+vi.mock("@/lib/settings/secret-box", () => ({ getSettingsKey: () => null }));
+vi.mock("@/lib/settings/runtime", () => ({ aiValues: () => null, createSettingsReader: () => ({ read: async () => ({}) }) }));
 vi.mock("@/lib/library/fetch-link", () => ({ fetchLink: mocks.fetchLink }));
 vi.mock("@/lib/library/taxonomy", () => ({ draftLists: async () => ({}) }));
 

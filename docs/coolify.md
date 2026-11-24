@@ -31,11 +31,30 @@ see [Deployment](deployment.md). Every variable is described in
    `0.2`, `latest`, or `preview`; see [automatic updates](#automatic-updates)),
    `LIBRARY_BASE_URL` (the domain), `DATABASE_URL` (the database's internal
    URL), a new `BETTER_AUTH_SECRET` (`openssl rand -base64 32`), the `OIDC_*`
-   variables, `DIRECTORY` with its settings, the `AI_*` variables, and for
-   files the `S3_*` variables ([storage](deployment.md#storage)).
+   variables, `DIRECTORY` with its settings, and for files the `S3_*`
+   variables ([storage](deployment.md#storage)). The AI model, email, Slack
+   and the other outside services are set in the library, not here.
 6. **Deploy**, open `LIBRARY_BASE_URL`, and take the
-   [first steps](deployment.md#first-steps-after-the-first-start).
+   [first steps](deployment.md#first-steps-after-the-first-start): set up
+   the integrations under **Admin → Integrations**, or in a terminal (below).
 7. **Automatic updates:** set them up as [below](#automatic-updates).
+
+## Settings in a terminal
+
+`cli` is on the `PATH` of the library's containers. In the resource's
+**Terminal**, choose the `web` or `worker` container and run, for example,
+`cli settings list`. `cli settings apply <name>` reads the JSON body from
+stdin: paste it (it is not shown), then press Ctrl-D. Do not type the body
+into the shell itself, for example as a heredoc: the shell's history would
+keep the secret. The commands, the setting names, and an example body for
+each are in
+[Deployment](deployment.md#settings-from-the-command-line).
+
+Up to 0.3.2, the AI model, email, Slack, the webhook, the weekly digest and
+the intake mailbox were environment variables of the resource. Coolify
+deploys the newest `compose.coolify.yaml` with each release, so the worker
+copies them into the database once; afterwards **Admin → Integrations** names
+the ones that can be deleted from the resource's environment variables.
 
 ## Upgrades
 

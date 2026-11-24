@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { getSlackIntakeConfig } from "@/lib/config";
 import { getDb } from "@/lib/db/client";
 import { readSlackRequest, recordSlackEvent } from "@/lib/library/slack-intake";
+import { readSlackSigningSecret } from "@/lib/settings/process";
 import { verifySlackSignature } from "@/lib/slack/signature";
 
 /*
@@ -35,7 +35,8 @@ async function readBody(request: Request): Promise<string | null> {
 }
 
 export async function POST(request: Request) {
-  const signingSecret = getSlackIntakeConfig().SLACK_SIGNING_SECRET;
+  // Admin › Integrations › Slack; read on each request, so a change applies at once.
+  const signingSecret = await readSlackSigningSecret();
   // The Slack bot is off.
   if (!signingSecret) return new Response(null, { status: 404 });
   const body = await readBody(request);

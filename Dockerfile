@@ -2,6 +2,7 @@
 #   web      Next.js server (port 3000)
 #   worker   uploads (text, screen, AI draft), notifications, Keycloak directory sync
 #   migrate  applies database migrations, then exits
+#   cli      the operator command, e.g. `cli settings list`; also on the PATH
 # The scripts in dist/ (taxonomy-import, replay) run with `node dist/<name>.mjs`.
 
 FROM node:26.13.1-bookworm-slim AS base
@@ -44,6 +45,9 @@ COPY --from=build --chown=node:node /app/public ./public
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/drizzle ./drizzle
 COPY --chown=node:node docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+# `cli …` in any container of the image, e.g. `docker compose exec web cli settings list`
+# or a terminal on Coolify.
+COPY --chown=node:node docker-cli.sh /usr/local/bin/cli
 # The release workflow sets the version; images built from source have none.
 ARG APP_VERSION=""
 ENV APP_VERSION=${APP_VERSION}

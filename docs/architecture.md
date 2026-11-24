@@ -102,7 +102,7 @@ unseen messages over IMAP (`src/lib/email/imap.ts`) and takes a message only
 when:
 
 1. it is not automatic (auto-replies, bounces, list mail),
-2. the From address is in an allowed domain (`EMAIL_INTAKE_DOMAINS`),
+2. the From address is in an allowed domain (the email intake's `domains`),
 3. the topmost `Authentication-Results` header, which the receiving mail
    server adds, shows `dkim=pass` for that domain (`header.d` or `header.i`)
    or `spf=pass` for it (`smtp.mailfrom`), and
@@ -115,7 +115,7 @@ not forwarded or quoted text, not the organization's own domains) through
 `submitLink`, on the `email` channel. The reason is the subject without
 "Re:"/"Fwd:", or else the first line of the body. The reply, the uploads,
 and the `email_message` row are written in one transaction; the message is
-then moved to `EMAIL_INTAKE_DONE_MAILBOX`, or marked as seen without one. A
+then moved to the done mailbox, or marked as seen without one. A
 message that failed for another reason (the database, storage) stays unseen
 for the next run. A message larger than one file at `UPLOAD_MAX_MB` is
 answered without being loaded.
@@ -130,8 +130,8 @@ the newest quote as the quote of the week. No AI model is involved.
 
 | Goes to | Gets |
 |---|---|
-| `DIGEST_SLACK_CHANNEL_ID` (Slack) | Notes for everyone |
-| `DIGEST_EMAIL_TO` (a list address) | Notes for everyone |
+| The weekly digest's Slack channel (**Admin → Integrations**) | Notes for everyone |
+| The weekly digest's email address (a list) | Notes for everyone |
 | A team's Slack channel (admins set it under **Admin → Teams**) | The team's notes for everyone or for the team |
 | Each person who follows tags (**Settings**), by email | Notes by others with one of their tags that they may see (`visibleNotes`) |
 

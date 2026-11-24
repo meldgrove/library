@@ -109,9 +109,11 @@ run the commands as root (`sudo -i`).
    release, such as `0.2.0`; the updater keeps it current), `LIBRARY_BASE_URL`,
    `DATABASE_URL`, a new `BETTER_AUTH_SECRET`
    (`openssl rand -base64 32`), the `OIDC_*` variables, `DIRECTORY` with its
-   settings, the `AI_*` variables, and for files the `S3_*` variables.
+   settings, and for files the `S3_*` variables.
    Remove `NOTIFICATION_TRANSPORT` (production sends for real),
    `AI_PROVIDER=fake`, and the `STORAGE_*` lines ([storage](#storage)).
+   The AI model, email, Slack and the other outside services are not set
+   here but in the library ([step 2](#first-steps-after-the-first-start)).
 
    Without a PostgreSQL of your own, set these values for the database.
    `COMPOSE_FILE` makes every `docker compose` command also use
@@ -152,11 +154,105 @@ run the commands as root (`sudo -i`).
 1. Sign in as an admin: with `DIRECTORY=manual`, an address in
    `INITIAL_ADMIN_EMAILS`; with `DIRECTORY=keycloak`, a member of
    `KEYCLOAK_ADMIN_GROUP` ([identity and access](identity-and-access.md)).
-2. Fill the taxonomy under **Maintenance → Taxonomy**, or import it
+2. Set up the integrations under **Admin → Integrations**, or on the server
+   with [`cli settings`](#settings-from-the-command-line): the AI model (until
+   then, uploads wait at the draft), email, and as needed Slack, the weekly
+   digest, the webhook and the intake mailbox
+   ([configuration](configuration.md#integrations)). Each has a test.
+3. Fill the taxonomy under **Maintenance → Taxonomy**, or import it
    ([taxonomy](taxonomy.md)). The AI model picks tags only from it. Topic
    areas and document types start with defaults; adjust them there.
-3. Optionally, run the [replay test](taxonomy.md#replay-test) against the
+4. Optionally, run the [replay test](taxonomy.md#replay-test) against the
    configured AI model before people start uploading.
+
+## Settings from the command line
+
+`cli` is the library's operator command. It sets what admins set under
+**Admin → Integrations**, with the same checks, and the audit log names the
+`operator` and the command. On the server, in `/srv/library`:
+
+```sh
+docker compose run --rm -T migrate cli settings list
+```
+
+In a running container, such as a terminal on Coolify, `cli` is on the
+`PATH`: `cli settings list`.
+
+| Command | What it does |
+|---|---|
+| `cli settings list [--json]` | Every setting: set, not set or incomplete, with hints (last characters; scheme, host and port of URLs), and the old variables still set |
+| `cli settings show <name>` | The setting as JSON, as the admin page reads it |
+| `cli settings apply <name>` | Reads the JSON body from stdin, the one the admin page sends, and saves it with the page's checks. Prints what `show` prints |
+| `cli settings test <name>` | What the page's test button does: `ai`, `email` (`--to <address>`), `slack`, `email-intake` |
+| `cli help` | The commands and the setting names |
+
+A body changes only the fields it names. A secret that is left out or empty
+stays as saved; `null` removes it (and clears any other field). Secrets go
+only on stdin, never in an argument: arguments show in `ps` and the shell
+history. Typed or pasted into a terminal, the body is not shown; end it with
+Ctrl-D. Exit codes: 0 done, 1 refused (the page's message on
+stderr), 2 a wrong command or a body that is not JSON. The command needs the
+`compose.yaml` of this release, which passes `BETTER_AUTH_SECRET` to
+`migrate`. Library issues no tokens, so there is no `cli tokens`.
+
+An AI agent with access to the server sets a secret like this: the secret
+arrives as a file, the agent pipes the body into `cli settings apply`, runs
+`cli settings test`, and deletes the file.
+
+```sh
+docker compose run --rm -T migrate cli settings apply ai < ai.json
+docker compose run --rm -T migrate cli settings test ai
+rm ai.json
+```
+
+One example body per setting ([fields](configuration.md#integrations)):
+
+### ai
+
+```json
+{ "provider": "anthropic", "apiKey": "sk-ant-…", "model": "claude-opus-5-5" }
+```
+
+For an OpenAI-compatible API, such as Mistral:
+
+```json
+{ "provider": "openai-compatible", "apiKey": "…", "model": "mistral-medium-latest", "baseUrl": "https://api.mistral.ai/v1" }
+```
+
+### email
+
+```json
+{ "provider": "smtp", "smtpUrl": "smtps://library%40example.org:password@mail.example.org:465", "from": "library@example.org", "fromName": "Meldgrove Library" }
+```
+
+With MailerSend: `{ "provider": "mailersend", "mailersendToken": "mlsn.…", "from": "library@example.org" }`.
+Test: `cli settings test email --to you@example.org`.
+
+### slack
+
+```json
+{ "botToken": "xoxb-…", "signingSecret": "…" }
+```
+
+### digest
+
+```json
+{ "slackChannelId": "C0123456789", "emailTo": "all-staff@example.org" }
+```
+
+### webhook
+
+```json
+{ "url": "https://hooks.example.org/library", "secret": "…" }
+```
+
+`{ "url": null }` switches the webhook off.
+
+### email-intake
+
+```json
+{ "imapUrl": "imaps://library-intake%40example.org:password@imap.example.org:993", "domains": ["example.org"], "mailbox": "INBOX", "doneMailbox": "Processed" }
+```
 
 ## Health checks
 
@@ -174,16 +270,28 @@ admin page shows the worker's last heartbeat.
 - **Backups**: see [Backups](#backups).
 - **Logs** are JSON lines on stdout. The `service` field names the process.
 - **Admin page** (`/admin`): worker heartbeat, uploads waiting and on hold,
-  directory sync status, notification channels, last week's messages per
+  whether an AI model is set up, directory sync status, notification channels, last week's messages per
   channel (Slack, email, Slack channel posts, list mail) and failures,
   webhook deliveries, and updates (installed version and channel).
-- **Upgrades**: read the release notes of every release since yours and
-  take their steps. Back up the database first: migrations only move
-  forward. `migrate` applies new migrations before `web` and `worker` start.
-  Take the steps, then install the release with the update button
-  (**Install anyway…**). By hand: in `/srv/library`, run `git pull` (the
-  newest release's `compose.yaml`), set `LIBRARY_VERSION` in `.env`, and run
-  `docker compose up -d --pull always`.
+- **Upgrades**: see [Upgrades](#upgrades).
+
+## Upgrades
+
+Read the release notes of every release since yours and take their steps.
+Back up the database first: migrations only move forward. `migrate` applies
+new migrations before `web` and `worker` start. Take the steps, then install
+the release with the update button (**Install anyway…**). By hand: in
+`/srv/library`, run `git pull` (the newest release's `compose.yaml`), set
+`LIBRARY_VERSION` in `.env`, and run `docker compose up -d --pull always`.
+
+The updater installs images, not files: `compose.yaml` stays as it was until
+`git pull`. Releases after 0.3.2 keep the outside services in the database
+([integrations](configuration.md#integrations)). Their image starts with an
+older `compose.yaml` too and copies the old variables into the database,
+but the worker of a `compose.yaml` up to 0.3.2 has no `BETTER_AUTH_SECRET`:
+it keeps reading the old variables, and the admin page says so. Run
+`git pull` and `docker compose up -d` to manage its settings in the library;
+then delete the variables that **Admin → Integrations** names from `.env`.
 
 ## Backups
 
@@ -205,9 +313,12 @@ With `STORAGE_DRIVER=s3` (the default), the originals are in the bucket, not
 in the `originals` volume: add the bucket in Backups as a source of the kind
 **S3 bucket**, with a key that may only read it.
 
-Keep `BETTER_AUTH_SECRET` apart from the backups (stored sign-in tokens are
-encrypted with it; without it, people sign in again): a restore needs it, the
+Keep `BETTER_AUTH_SECRET` apart from the backups: a restore needs it, the
 backups do not hold it, and Backups shows the name on the source page.
+Stored sign-in tokens and the secrets of the
+[integrations](configuration.md#integrations) are encrypted with it. Without
+it, people sign in again and admins enter those secrets (API key, tokens,
+passwords) again under **Admin → Integrations**.
 
 With [automatic updates](#automatic-updates), run the updater's host setup
 again once the app's folder has updater 0.2.2 or later (`git pull`): its

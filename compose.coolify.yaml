@@ -49,6 +49,31 @@ x-storage-environment: &storage-environment
   S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-}
   UPLOAD_MAX_MB: ${UPLOAD_MAX_MB:-}
 
+# Up to 0.3.2, Slack, email, the AI model, the webhook, the weekly digest and the
+# intake mailbox were set here. They are settings in the database now
+# (Admin › Integrations, or `cli settings`, docs/deployment.md). The worker
+# still gets the old variables so that it copies them into the database once
+# (images up to 0.3.2 read them too); then the admin page and
+# `cli settings list` say to delete them from .env.
+x-moved-environment: &moved-environment
+  AI_PROVIDER: ${AI_PROVIDER:-openai-compatible}
+  AI_BASE_URL: ${AI_BASE_URL:-}
+  AI_API_KEY: ${AI_API_KEY:-}
+  AI_MODEL: ${AI_MODEL:-}
+  WEBHOOK_URL: ${WEBHOOK_URL:-}
+  WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+  SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+  SMTP_URL: ${SMTP_URL:-}
+  MAILERSEND_API_TOKEN: ${MAILERSEND_API_TOKEN:-}
+  MAIL_FROM: ${MAIL_FROM:-}
+  MAIL_FROM_NAME: ${MAIL_FROM_NAME:-}
+  DIGEST_SLACK_CHANNEL_ID: ${DIGEST_SLACK_CHANNEL_ID:-}
+  DIGEST_EMAIL_TO: ${DIGEST_EMAIL_TO:-}
+  EMAIL_INTAKE_IMAP_URL: ${EMAIL_INTAKE_IMAP_URL:-}
+  EMAIL_INTAKE_DOMAINS: ${EMAIL_INTAKE_DOMAINS:-}
+  EMAIL_INTAKE_MAILBOX: ${EMAIL_INTAKE_MAILBOX:-}
+  EMAIL_INTAKE_DONE_MAILBOX: ${EMAIL_INTAKE_DONE_MAILBOX:-}
+
 # Error reporting to Sentry; off without SENTRY_DSN.
 x-error-reporting-environment: &error-reporting-environment
   SENTRY_DSN: ${SENTRY_DSN:-}
@@ -63,6 +88,9 @@ services:
     restart: "no"
     environment:
       <<: *app-environment
+      # Opens the secrets of the settings for `cli settings`, which runs in
+      # this service: docker compose run --rm -T migrate cli settings list
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?}
 
   web:
     image: *image
@@ -83,7 +111,7 @@ services:
       OIDC_SCOPES: ${OIDC_SCOPES:-}
       OIDC_TRUST_EMAIL: ${OIDC_TRUST_EMAIL:-}
       OIDC_PROVIDER_NAME: ${OIDC_PROVIDER_NAME:-}
-      # The Slack bot's events; off without it (docs/configuration.md).
+      # Moved into the database after 0.3.2 (see x-moved-environment).
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
     healthcheck:
       # Readiness: database reachable and migrations applied.
@@ -108,34 +136,15 @@ services:
     volumes:
       - originals:/data/originals
     environment:
-      <<: [*app-environment, *directory-environment, *storage-environment, *error-reporting-environment]
-      # The AI model that drafts notes (docs/configuration.md).
-      AI_PROVIDER: ${AI_PROVIDER:-openai-compatible}
-      AI_BASE_URL: ${AI_BASE_URL:-}
-      AI_API_KEY: ${AI_API_KEY:-}
-      AI_MODEL: ${AI_MODEL:-}
+      <<: [*app-environment, *directory-environment, *storage-environment, *error-reporting-environment, *moved-environment]
+      # Opens the secrets of the settings in the database.
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?}
+      # Limits on the AI model (docs/configuration.md); the model itself is a setting.
       AI_DAILY_LIMIT: ${AI_DAILY_LIMIT:-}
       AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-}
-      # The webhook; off without WEBHOOK_URL (docs/webhooks.md).
-      WEBHOOK_URL: ${WEBHOOK_URL:-}
-      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
       # Text recognition for scanned PDFs; the image includes ocrmypdf.
       OCR_COMMAND: ${OCR_COMMAND:-ocrmypdf}
       OCR_LANGUAGES: ${OCR_LANGUAGES:-}
-      # Each channel is off until it is configured.
-      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
-      SMTP_URL: ${SMTP_URL:-}
-      MAILERSEND_API_TOKEN: ${MAILERSEND_API_TOKEN:-}
-      MAIL_FROM: ${MAIL_FROM:-}
-      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-}
-      # The weekly digest for everyone; teams set their own channel in the library.
-      DIGEST_SLACK_CHANNEL_ID: ${DIGEST_SLACK_CHANNEL_ID:-}
-      DIGEST_EMAIL_TO: ${DIGEST_EMAIL_TO:-}
-      # The intake mailbox; off without EMAIL_INTAKE_IMAP_URL (docs/configuration.md).
-      EMAIL_INTAKE_IMAP_URL: ${EMAIL_INTAKE_IMAP_URL:-}
-      EMAIL_INTAKE_DOMAINS: ${EMAIL_INTAKE_DOMAINS:-}
-      EMAIL_INTAKE_MAILBOX: ${EMAIL_INTAKE_MAILBOX:-}
-      EMAIL_INTAKE_DONE_MAILBOX: ${EMAIL_INTAKE_DONE_MAILBOX:-}
     healthcheck:
       # The worker refreshes its heartbeat file every 30 seconds.
       test: ["CMD", "node", "dist/worker-healthcheck.mjs"]

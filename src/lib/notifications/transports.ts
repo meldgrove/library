@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { logger } from "@/lib/logger";
+import type { EmailValues } from "@/lib/settings/runtime";
 import { isPermanentSlackError, isPermanentSlackStatus } from "@/lib/slack/errors";
 import type { ChannelMode, NotificationChannels } from "./types";
 
@@ -226,40 +227,58 @@ export function createConsoleEmailTransport(): EmailTransport {
   };
 }
 
-function createEmailTransport(config: {
-  SMTP_URL?: string;
-  MAILERSEND_API_TOKEN?: string;
-  MAIL_FROM?: string;
-  MAIL_FROM_NAME: string;
-}): EmailTransport | undefined {
-  if (!config.MAIL_FROM) return undefined;
-  if (config.SMTP_URL) return createSmtpTransport({ url: config.SMTP_URL, from: config.MAIL_FROM, fromName: config.MAIL_FROM_NAME });
-  if (config.MAILERSEND_API_TOKEN) {
-    return createMailerSendTransport({ token: config.MAILERSEND_API_TOKEN, from: config.MAIL_FROM, fromName: config.MAIL_FROM_NAME });
-  }
-  return undefined;
+/** The live email transport of the `email` setting. */
+export function createEmailTransport(email: EmailValues): EmailTransport {
+  return email.provider === "smtp"
+    ? createSmtpTransport({ url: email.smtpUrl, from: email.from, fromName: email.fromName })
+    : createMailerSendTransport({ token: email.token, from: email.from, fromName: email.fromName });
 }
 
-/** The transports for this worker's configuration. A channel without its settings is off. */
-export function createTransports(config: {
-  NOTIFICATION_TRANSPORT: "live" | "console";
-  LIBRARY_BASE_URL: string;
-  SLACK_BOT_TOKEN?: string;
-  SMTP_URL?: string;
-  MAILERSEND_API_TOKEN?: string;
-  MAIL_FROM?: string;
-  MAIL_FROM_NAME: string;
+/**
+ * The transports for the current settings. A channel without its settings is
+ * off; with NOTIFICATION_TRANSPORT=console both only log.
+ */
+export function createTransports(options: {
+  mode: "live" | "console";
+  /** LIBRARY_BASE_URL. */
+  baseUrl: string;
+  slackToken: string | null;
+  email: EmailValues | null;
 }): Transports {
-  if (config.NOTIFICATION_TRANSPORT === "console") {
+  if (options.mode === "console") {
     return {
-      baseUrl: config.LIBRARY_BASE_URL,
+      baseUrl: options.baseUrl,
       slack: createConsoleSlackTransport(),
       email: createConsoleEmailTransport(),
     };
   }
   return {
-    baseUrl: config.LIBRARY_BASE_URL,
-    slack: config.SLACK_BOT_TOKEN ? createSlackTransport(config.SLACK_BOT_TOKEN) : undefined,
-    email: createEmailTransport(config),
+    baseUrl: options.baseUrl,
+    slack: options.slackToken ? createSlackTransport(options.slackToken) : undefined,
+    email: options.email ? createEmailTransport(options.email) : undefined,
   };
+}
+
+/** What a test button reports. */
+export interface CheckResult {
+  ok: boolean;
+  message: string;
+}
+
+/** The test of the `slack` setting: Slack's auth.test with the bot token. Sends no message. */
+export async function checkSlackToken(token: string, fetchImpl: typeof fetch = fetch): Promise<CheckResult> {
+  let response: Response;
+  try {
+    response = await fetchImpl("https://slack.com/api/auth.test", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch {
+    return { ok: false, message: "Slack could not be reached." };
+  }
+  if (!response.ok) return { ok: false, message: `Slack answered HTTP ${response.status}.` };
+  const result = (await response.json().catch(() => null)) as { ok?: boolean; error?: string; team?: string; user?: string } | null;
+  if (!result?.ok) return { ok: false, message: `Slack refused the bot token: ${result?.error ?? "unknown error"}.` };
+  return { ok: true, message: `Slack accepts the bot token: the bot ${result.user ?? "(unnamed)"} in the workspace ${result.team ?? "(unnamed)"}.` };
 }
