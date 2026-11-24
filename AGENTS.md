@@ -49,8 +49,9 @@ API (`@anthropic-ai/sdk`) or any OpenAI-compatible chat completions API.
   `db`, `storage`, `audit`, `health`, `jobs` (queues and schedules),
   `security`, `notifications`, `slack` (signature check, the bot's Slack
   client, which Slack errors are permanent for the bot and the
-  notifications alike), `email` (IMAP), `updates` (the updater's API behind
-  the admins' update button, `src/app/api/admin/updates`).
+  notifications alike), `email` (IMAP), `updates` (who may call the routes
+  under `src/app/api/admin/updates`; `@meldgrove/ui/updates/server` asks the
+  updater with `UPDATER_TOKEN`).
 - `src/lib/settings/`: the settings of Admin › Integrations (AI model,
   email, Slack, digest, webhook, email intake) in `app_setting`:
   `definitions.ts` (fields and rules), `service.ts` (the one way to read and
@@ -66,7 +67,7 @@ API (`@anthropic-ai/sdk`) or any OpenAI-compatible chat completions API.
   `dev/`: the development Keycloak realm and `seed-demo.ts` (example notes).
   `e2e/`: Playwright. `tests/`: test helpers and fixtures
   (`tests/fixtures/files`: PDFs, a scan, a Word file; `tests/fixtures/email`:
-  `.eml` messages; `tests/fixtures/updater-0.2`: answers of the updater).
+  `.eml` messages).
   Unit tests sit next to the code (`*.test.ts`),
   integration tests too (`*.int.test.ts`).
 

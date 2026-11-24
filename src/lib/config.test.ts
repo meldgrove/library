@@ -266,4 +266,11 @@ describe("parseUpdaterConfig", () => {
     expect(() => parseUpdaterConfig({ UPDATER_URL: "updater:8080" })).toThrow(/UPDATER_URL: must be a URL/);
     expect(() => validateWebConfig({ UPDATER_URL: "ftp://updater" })).toThrow(/UPDATER_URL/);
   });
+
+  it("sends no token unless UPDATER_TOKEN is set, and refuses one with spaces", () => {
+    expect(parseUpdaterConfig({}).UPDATER_TOKEN).toBeUndefined();
+    expect(parseUpdaterConfig({ UPDATER_TOKEN: " " }).UPDATER_TOKEN).toBeUndefined();
+    expect(parseUpdaterConfig({ UPDATER_TOKEN: "0123456789abcdef" }).UPDATER_TOKEN).toBe("0123456789abcdef");
+    expect(() => parseUpdaterConfig({ UPDATER_TOKEN: "two words" })).toThrow(/UPDATER_TOKEN: must be visible ASCII/);
+  });
 });

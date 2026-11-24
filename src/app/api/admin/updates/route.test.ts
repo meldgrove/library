@@ -1,14 +1,20 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
+import { startFakeUpdater, updaterStatus, type FakeUpdater } from "@meldgrove/ui/updates/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { release, status } from "../../../../../tests/fixtures/updates";
 
-const mocks = vi.hoisted(() => ({ getCurrentPerson: vi.fn(), updaterUrl: null as string | null }));
+/*
+ * The library's side of the update routes: who may ask, and that requests
+ * reach the updater with UPDATER_TOKEN. How the answers look is
+ * @meldgrove/ui/updates/server's, and tested there.
+ */
+
+const TOKEN = "updater-test-token";
+
+const mocks = vi.hoisted(() => ({ getCurrentPerson: vi.fn(), updaterUrl: null as string | null, updaterToken: undefined as string | undefined }));
 
 vi.mock("@/lib/auth/session", () => ({ getCurrentPerson: mocks.getCurrentPerson }));
 vi.mock("@/lib/config", () => ({
   getAuthConfig: () => ({ LIBRARY_BASE_URL: "https://library.example" }),
-  getUpdaterConfig: () => ({ UPDATER_URL: mocks.updaterUrl }),
+  getUpdaterConfig: () => ({ UPDATER_URL: mocks.updaterUrl, UPDATER_TOKEN: mocks.updaterToken }),
   getVersionConfig: () => ({ APP_VERSION: "0.2.0" }),
 }));
 
@@ -23,36 +29,21 @@ const ADMIN = { id: "00000000-0000-4000-8000-000000000001", role: "admin" };
 const MEMBER = { id: "00000000-0000-4000-8000-000000000002", role: "member" };
 const MAINTAINER = { id: "00000000-0000-4000-8000-000000000003", role: "maintainer" };
 
-let handler: (request: IncomingMessage, body: string, response: ServerResponse) => void;
-const calls: { method: string; url: string; body: string }[] = [];
-let server: Server;
-
-function json(response: ServerResponse, code: number, payload: unknown): void {
-  response.writeHead(code, { "content-type": "application/json" });
-  response.end(JSON.stringify(payload));
-}
+let updater: FakeUpdater;
 
 beforeAll(async () => {
-  server = createServer(async (request, response) => {
-    let body = "";
-    for await (const chunk of request) body += chunk;
-    calls.push({ method: request.method!, url: request.url!, body });
-    handler(request, body, response);
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  updater = await startFakeUpdater({ token: TOKEN });
 });
 
-afterAll(() => {
-  server.closeAllConnections();
-  server.close();
-});
+afterAll(() => updater.close());
 
 beforeEach(() => {
   vi.clearAllMocks();
-  calls.length = 0;
+  updater.calls.length = 0;
+  updater.respond(() => ({ body: updaterStatus() }));
   mocks.getCurrentPerson.mockResolvedValue(ADMIN);
-  mocks.updaterUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  handler = (_request, _body, response) => json(response, 200, status({ available: release("0.2.1") }));
+  mocks.updaterUrl = updater.url;
+  mocks.updaterToken = TOKEN;
 });
 
 function get(): Promise<Response> {
@@ -60,112 +51,72 @@ function get(): Promise<Response> {
 }
 
 function post(route: "check" | "install" | "channel", body?: unknown, origin: string | null = "https://library.example"): Promise<Response> {
-  const headers: Record<string, string> = { "content-type": "application/json" };
+  const text = body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body);
+  // As browsers send them.
+  const headers: Record<string, string> = { "content-type": "application/json", "content-length": String(Buffer.byteLength(text ?? "")) };
   if (origin) headers.origin = origin;
-  return routes[route].POST(
-    new Request(`https://library.example/api/admin/updates/${route}`, {
-      method: "POST",
-      headers,
-      body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body),
-    }),
-  );
+  return routes[route].POST(new Request(`https://library.example/api/admin/updates/${route}`, { method: "POST", headers, body: text }));
 }
 
 describe("/api/admin/updates", () => {
-  it("answers 404 without a session and to people who are not admins, maintainers too", async () => {
+  it("answers 404 without a session and to people who are not admins, maintainers too, without asking the updater", async () => {
     for (const person of [null, MEMBER, MAINTAINER]) {
       mocks.getCurrentPerson.mockResolvedValue(person);
-      expect((await get()).status).toBe(404);
-      expect((await post("check")).status).toBe(404);
-      expect((await post("install", { version: "0.2.1" })).status).toBe(404);
-      expect((await post("channel", { channel: "preview" })).status).toBe(404);
+      for (const response of [await get(), await post("check"), await post("install", { version: "0.2.1" }), await post("channel", { channel: "preview" })]) {
+        expect(response.status).toBe(404);
+        expect(response.headers.get("cache-control")).toBe("no-store");
+      }
     }
-    expect(calls).toEqual([]);
+    expect(updater.calls).toEqual([]);
   });
 
-  it("refuses POSTs from other sites and without an Origin", async () => {
+  it("refuses POSTs from other sites, without an Origin, and with a large body, without asking the updater", async () => {
     for (const origin of ["https://evil.example", null]) {
-      const response = await post("install", { version: "0.2.1" }, origin);
-      expect(response.status).toBe(403);
+      expect((await post("install", { version: "0.2.1" }, origin)).status).toBe(403);
+      expect((await post("channel", { channel: "preview" }, origin)).status).toBe(403);
+      expect((await post("check", undefined, origin)).status).toBe(403);
     }
-    expect((await post("channel", { channel: "preview" }, "https://evil.example")).status).toBe(403);
-    expect((await post("check", undefined, "https://evil.example")).status).toBe(403);
-    expect(calls).toEqual([]);
+    expect((await post("install", { version: "0.2.1", padding: "x".repeat(2_000) })).status).toBe(413);
+    expect(updater.calls).toEqual([]);
   });
 
-  it("answers the status for admins, without caching", async () => {
+  it("answers the status for admins, without caching, and sends UPDATER_TOKEN", async () => {
     const response = await get();
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(await response.json()).toEqual({ app: { version: "0.2.0" }, reachable: true, updater: status({ available: release("0.2.1") }), error: null });
-    expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual(["GET /v1/status"]);
+    expect(await response.json()).toEqual({ app: { version: "0.2.0" }, reachable: true, updater: updaterStatus(), error: null });
+    expect(updater.calls).toEqual([{ method: "GET", path: "/v1/status", body: null, authorization: `Bearer ${TOKEN}` }]);
   });
 
-  it("checks on request", async () => {
-    const response = await post("check");
-    expect(response.status).toBe(200);
-    expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual(["POST /v1/check"]);
-  });
-
-  it("installs a valid version and passes the 202 on", async () => {
-    handler = (request, _body, response) =>
-      json(response, request.url === "/v1/install" ? 202 : 200, status({ installing: { version: "0.2.1", startedAt: "2026-11-19T10:00:00.000Z", manual: true, stage: "requested" } }));
-    for (const version of ["0.2.1", "0.3.0-preview.12", "sha256:0123456789ab"]) {
-      const response = await post("install", { version });
-      expect(response.status).toBe(202);
-    }
-    expect(calls.map((call) => call.body)).toEqual(['{"version":"0.2.1"}', '{"version":"0.3.0-preview.12"}', '{"version":"sha256:0123456789ab"}']);
-  });
-
-  it("refuses an invalid version before it calls the updater's install", async () => {
-    for (const body of [{ version: "latest" }, { version: "0.2" }, { version: "0.2.1; rm -rf /" }, { version: "sha256:XYZ" }, {}, "not json"]) {
-      const response = await post("install", body);
-      expect(response.status).toBe(400);
-      expect(await response.json()).toMatchObject({ reachable: true, error: "Name the version to install, such as 0.2.1." });
-    }
-    expect(calls.every((call) => call.url === "/v1/status")).toBe(true);
-  });
-
-  it("switches the channel and refuses unknown ones", async () => {
+  it("passes check, install, and channel on to the updater, with the token", async () => {
+    updater.respond((call) =>
+      call.path === "/v1/install"
+        ? { status: 202, body: updaterStatus({ installing: { version: "0.2.1", startedAt: "2026-11-24T10:00:00.000Z", manual: true, stage: "requested" } }) }
+        : { body: updaterStatus() },
+    );
+    expect((await post("check")).status).toBe(200);
+    expect((await post("install", { version: "0.2.1" })).status).toBe(202);
     expect((await post("channel", { channel: "preview" })).status).toBe(200);
-    expect(calls.at(-1)).toEqual({ method: "POST", url: "/v1/channel", body: '{"channel":"preview"}' });
-    calls.length = 0;
-    const response = await post("channel", { channel: "nightly" });
-    expect(response.status).toBe(400);
-    expect((await response.json()).error).toBe("The channel is stable or preview.");
-    expect(calls.map((call) => call.url)).toEqual(["/v1/status"]);
+    expect(updater.calls.map(({ method, path, body }) => ({ method, path, body }))).toEqual([
+      { method: "POST", path: "/v1/check", body: null },
+      { method: "POST", path: "/v1/install", body: { version: "0.2.1" } },
+      { method: "POST", path: "/v1/channel", body: { channel: "preview" } },
+    ]);
+    expect(updater.calls.every((call) => call.authorization === `Bearer ${TOKEN}`)).toBe(true);
   });
 
-  it("answers 409 with the updater's reason when it refuses", async () => {
-    const locked = "The platform's image tag latest decides which updates install. Change it there.";
-    handler = (request, _body, response) =>
-      request.url === "/v1/channel" ? json(response, 409, { error: locked }) : json(response, 200, status({ mode: "platform", channelLocked: locked }));
-    const response = await post("channel", { channel: "preview" });
-    expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({
-      app: { version: "0.2.0" },
-      reachable: true,
-      updater: status({ mode: "platform", channelLocked: locked }),
-      error: locked,
-    });
-  });
-
-  it("passes a server error of the updater's install through, so that the browser looks for the installation", async () => {
-    const busy = "The deploy link did not answer.";
-    handler = (request, _body, response) => (request.url === "/v1/install" ? json(response, 503, { error: busy }) : json(response, 200, status({ available: release("0.2.1") })));
-    const response = await post("install", { version: "0.2.1" });
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ app: { version: "0.2.0" }, reachable: true, updater: status({ available: release("0.2.1") }), error: busy });
-    // A refusal of the install stays 409.
-    handler = (request, _body, response) => (request.url === "/v1/install" ? json(response, 409, { error: "0.2.1 is not offered." }) : json(response, 200, status()));
-    expect((await post("install", { version: "0.2.1" })).status).toBe(409);
-  });
-
-  it("answers reachable: false when no updater answers", async () => {
-    mocks.updaterUrl = "http://127.0.0.1:9";
-    for (const response of [await get(), await post("check"), await post("install", { version: "0.2.1" }), await post("channel", { channel: "stable" })]) {
-      expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ app: { version: "0.2.0" }, reachable: false, updater: null });
+  it("refuses an invalid version before it calls the updater", async () => {
+    for (const body of [{ version: "latest" }, { version: "0.2.1; rm -rf /" }, {}, "not json"]) {
+      expect((await post("install", body)).status).toBe(400);
     }
+    expect(updater.calls).toEqual([]);
+  });
+
+  it("says that UPDATER_TOKEN is missing when the updater needs one", async () => {
+    mocks.updaterToken = undefined;
+    const response = await get();
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ reachable: true, updater: null, error: expect.stringContaining("UPDATER_TOKEN") });
+    expect(updater.calls).toEqual([{ method: "GET", path: "/v1/status", body: null, authorization: null }]);
   });
 });

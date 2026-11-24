@@ -30,10 +30,12 @@ see [Deployment](deployment.md). Every variable is described in
    ([configuration](configuration.md)): `LIBRARY_VERSION` (a series such as
    `0.2`, `latest`, or `preview`; see [automatic updates](#automatic-updates)),
    `LIBRARY_BASE_URL` (the domain), `DATABASE_URL` (the database's internal
-   URL), a new `BETTER_AUTH_SECRET` (`openssl rand -base64 32`), the `OIDC_*`
-   variables, `DIRECTORY` with its settings, and for files the `S3_*`
-   variables ([storage](deployment.md#storage)). The AI model, email, Slack
-   and the other outside services are set in the library, not here.
+   URL), a new `BETTER_AUTH_SECRET` (`openssl rand -base64 32`), an
+   `UPDATER_TOKEN` (`openssl rand -hex 32`, recommended:
+   [it protects the update service](#protect-the-update-service)), the
+   `OIDC_*` variables, `DIRECTORY` with its settings, and for files the
+   `S3_*` variables ([storage](deployment.md#storage)). The AI model, email,
+   Slack and the other outside services are set in the library, not here.
 6. **Deploy**, open `LIBRARY_BASE_URL`, and take the
    [first steps](deployment.md#first-steps-after-the-first-start): set up
    the integrations under **Admin → Integrations**, or in a terminal (below).
@@ -91,6 +93,20 @@ button without an install action: take its steps, then change the tag.
 `UPDATE_COOLDOWN` and `UPDATE_WINDOW` work as on a server
 ([automatic updates](deployment.md#automatic-updates)). Schedule database
 backups first: migrations run without anyone watching.
+
+## Protect the update service
+
+With `UPDATER_TOKEN` set, the library sends it with each request to the
+updater, and the updater refuses requests without it. Recommended for
+resources set up before it existed; without it, everything works as before.
+Until it is done, **Admin → Updates** warns that the update service takes
+requests without a token (with updater 0.2.4 or later, which reports it).
+Do it once the tag in `LIBRARY_VERSION` gives the release whose notes name
+this step, or a newer one: each deploy pulls that tag, and an older version
+does not send the token, so its update button would get no answer. In the
+resource's environment variables, set `UPDATER_TOKEN` to the output of
+`openssl rand -hex 32`, then redeploy: Coolify reads `compose.coolify.yaml`
+from `stable` and pulls the images again.
 
 ## Moving an existing resource
 

@@ -108,8 +108,10 @@ run the commands as root (`sudo -i`).
    ([configuration](configuration.md)): `LIBRARY_VERSION` (the newest
    release, such as `0.2.0`; the updater keeps it current), `LIBRARY_BASE_URL`,
    `DATABASE_URL`, a new `BETTER_AUTH_SECRET`
-   (`openssl rand -base64 32`), the `OIDC_*` variables, `DIRECTORY` with its
-   settings, and for files the `S3_*` variables.
+   (`openssl rand -base64 32`), an `UPDATER_TOKEN` (`openssl rand -hex 32`,
+   recommended: [it protects the update service](#protect-the-update-service)),
+   the `OIDC_*` variables, `DIRECTORY` with its settings, and for files the
+   `S3_*` variables.
    Remove `NOTIFICATION_TRANSPORT` (production sends for real),
    `AI_PROVIDER=fake`, and the `STORAGE_*` lines ([storage](#storage)).
    The AI model, email, Slack and the other outside services are not set
@@ -383,8 +385,11 @@ fails, the button says why and which version still runs. The admin page
 shows the installed version, the channel, and when updates install.
 
 The library reaches the updater at `UPDATER_URL`
-([configuration](configuration.md#updates-web)). The updater's API has no
-authentication: never publish its port. Without an updater that answers,
+([configuration](configuration.md#updates-web)); never publish the updater's
+port. With `UPDATER_TOKEN` set, the library sends it with each request and
+the updater refuses requests without it; without it, anything that reaches
+the updater on the Docker network can install an offered update or switch
+the channel. Without an updater that answers,
 such as updater 0.1, which has no API, the button says "No update service";
 updater 0.1 keeps installing as before.
 
@@ -434,3 +439,24 @@ and starts them, so that the library itself, not only the updater, runs the
 new version: without `--pull always`, Compose keeps an image the server
 already has under that tag. Until the host setup runs again, the admin page
 explains that the channel needs it.
+
+### Protect the update service
+
+Recommended for installations set up before `UPDATER_TOKEN` existed; without
+it, everything works as before. Until it is done, **Admin → Updates** warns
+that the update service takes requests without a token (with updater 0.2.4
+or later, which reports it). Do it once the library runs the release whose
+notes name this step, or a newer one: an older version does not send the
+token, and its update button would get no answer from the updater. As root
+in `/srv/library`:
+
+```sh
+git pull
+# in .env: UPDATER_TOKEN=<the output of: openssl rand -hex 32>
+docker compose pull updater
+docker compose up -d
+```
+
+`git pull` brings the `compose.yaml` that passes the token to the library and
+to the updater (as `API_TOKEN`); `docker compose pull updater` makes sure the
+updater is one that checks it. Then the updater answers only the library.

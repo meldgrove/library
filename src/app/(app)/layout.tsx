@@ -8,10 +8,12 @@ import { getUpdaterConfig } from "@/lib/config";
 import { getDb } from "@/lib/db/client";
 import { countMyDrafts, countMaintenanceWork } from "@/lib/library/review";
 import { displayPreferences, type DateFormat } from "@/lib/preferences";
-import { UPDATES_API } from "@/lib/updates/types";
 
 /** Set by the frame's sidebar when it is opened or hidden. */
 const SIDEBAR_COOKIE = "sidebar_state";
+
+/** The route handlers under src/app/api/admin/updates. */
+const UPDATES_API = "/api/admin/updates";
 
 const DEPLOYMENT_GUIDE = "https://github.com/meldgrove/library/blob/stable/docs/deployment.md#automatic-updates";
 

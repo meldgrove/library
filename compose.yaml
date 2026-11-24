@@ -29,8 +29,10 @@ x-app-environment: &app-environment
   DATABASE_URL: ${DATABASE_URL:?}
   TZ: ${TZ:-UTC}
   LOG_LEVEL: ${LOG_LEVEL:-info}
-  # The update button for admins asks `updater` (docs/configuration.md).
+  # The update button for admins asks `updater` (docs/configuration.md),
+  # with UPDATER_TOKEN (openssl rand -hex 32), which the updater then requires.
   UPDATER_URL: ${UPDATER_URL:-http://updater:8080}
+  UPDATER_TOKEN: ${UPDATER_TOKEN:-}
 
 x-directory-environment: &directory-environment
   LIBRARY_BASE_URL: ${LIBRARY_BASE_URL:?}
@@ -164,7 +166,8 @@ services:
 
   # Automatic updates and the update button (docs/deployment.md). It checks
   # for new versions every hour and answers the library on port 8080 of the
-  # Compose network; never publish that port, the API has no authentication.
+  # Compose network; never publish that port. With UPDATER_TOKEN set, its API
+  # takes only requests that carry it, as the library's do.
   # It installs nothing until the server runs `updater host-setup`: then
   # admins choose Stable or Preview in the library, and for each installation
   # the server writes the version into LIBRARY_VERSION, pulls it, runs
@@ -176,6 +179,8 @@ services:
     environment:
       IMAGE: *image
       VERSION_VARIABLE: LIBRARY_VERSION
+      # Empty: the API takes requests from anything on the Compose network.
+      API_TOKEN: ${UPDATER_TOKEN:-}
       # A stable release installs once it has been out this long, and only
       # inside the window, if one is set (e.g. 02:00-05:00, in the time zone TZ).
       COOLDOWN: ${UPDATE_COOLDOWN:-3d}

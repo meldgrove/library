@@ -319,6 +319,7 @@ The update button for admins asks the updater service
 | Variable | Default | Value |
 |---|---|---|
 | `UPDATER_URL` | `http://updater:8080`, the `updater` service of `compose.yaml` | The updater's API. With `compose.yaml`, an empty value falls back to the default. Only where the library reads its environment directly (outside Docker Compose), empty switches the update button off; unlike other variables, empty is not unset there |
+| `UPDATER_TOKEN` | none | Recommended: the token the library sends to the updater, which then refuses requests without it. Below |
 
 With Docker Compose, the `updater` service reads `UPDATE_COOLDOWN` (default
 `3d`), `UPDATE_WINDOW`, and `TZ`, and for a private copy of the image
@@ -326,6 +327,12 @@ With Docker Compose, the `updater` service reads `UPDATE_COOLDOWN` (default
 ([deployment](deployment.md#automatic-updates)). On Coolify, it also reads
 `UPDATE_DEPLOY_HOOK_URL` and `UPDATE_DEPLOY_HOOK_TOKEN`
 ([Coolify](coolify.md#automatic-updates)).
+
+`compose.yaml` and `compose.coolify.yaml` pass `UPDATER_TOKEN` to the library
+and, as `API_TOKEN`, to the updater; make it with `openssl rand -hex 32`
+(visible characters, no spaces). Without it, anything that reaches the
+updater on the Docker network can install an offered update or switch the
+channel ([protect the update service](deployment.md#protect-the-update-service)).
 
 ## Time zone
 

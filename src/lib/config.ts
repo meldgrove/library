@@ -252,6 +252,12 @@ const updaterSchema = z.object({
       z.string().refine((value) => value === "" || httpUrl.safeParse(value).success, "must be a URL such as http://updater:8080, or empty to switch the update button off"),
     )
     .transform((value) => (value === "" ? null : withoutTrailingSlash(value))),
+  /**
+   * Sent to the updater with each request (`Authorization: Bearer`); the
+   * updater's API_TOKEN, the same value in compose.yaml, then refuses requests
+   * without it. Unset: no token, and the updater takes any request.
+   */
+  UPDATER_TOKEN: optional(z.string().regex(/^[\x21-\x7e]+$/, "must be visible ASCII characters without spaces, such as the output of openssl rand -hex 32")),
 });
 
 export type DatabaseConfig = z.infer<typeof databaseSchema>;
