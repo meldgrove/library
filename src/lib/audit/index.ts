@@ -39,8 +39,7 @@ export type AuditAction =
   | "team.activated"
   | "team.deactivated"
   | "team.digest_channel_changed"
-  | "setting.changed"
-  | "setting.imported";
+  | "setting.changed";
 
 export type AuditSubject = "note" | "submission" | "source" | "tag" | "tag_cluster" | "tag_proposal" | "document_type" | "topic_area" | "person" | "team" | "setting";
 

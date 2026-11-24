@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { environment, isEnvironment, isOperator, operator } from "@/lib/settings/actor";
+import { isOperator, operator } from "@/lib/settings/actor";
 
 const SRC = path.resolve(import.meta.dirname, "..");
 
@@ -19,16 +19,9 @@ describe("the operator", () => {
     expect(files.every((file) => file.startsWith(`cli${path.sep}`)), files.join()).toBe(true);
   });
 
-  it("and the import of old variables only by legacy-env.ts", () => {
-    const files = callers(/\benvironment\(|import\s*\{[^}]*\benvironment\b[^}]*\}\s*from\s*"[^"]*actor"/);
-    expect(files).toEqual([path.join("lib", "settings", "legacy-env.ts")]);
-  });
-
   it("does not survive JSON, so no request body or Server Action argument can stand for it", () => {
     expect(isOperator(operator("cli settings apply email"))).toBe(true);
     expect(isOperator(JSON.parse(JSON.stringify(operator("cli settings apply email"))))).toBe(false);
     expect(isOperator({ command: "cli settings apply email" })).toBe(false);
-    expect(isEnvironment(environment("web"))).toBe(true);
-    expect(isEnvironment({ kind: "environment", process: "web" })).toBe(false);
   });
 });

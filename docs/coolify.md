@@ -52,12 +52,6 @@ keep the secret. The commands, the setting names, and an example body for
 each are in
 [Deployment](deployment.md#settings-from-the-command-line).
 
-Up to 0.3.2, the AI model, email, Slack, the webhook, the weekly digest and
-the intake mailbox were environment variables of the resource. Coolify
-deploys the newest `compose.coolify.yaml` with each release, so the worker
-copies them into the database once; afterwards **Admin → Integrations** names
-the ones that can be deleted from the resource's environment variables.
-
 ## Upgrades
 
 Read the release notes of every release since yours and take their steps.

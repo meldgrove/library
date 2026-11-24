@@ -6,8 +6,8 @@ import { IntegrationForm, type IntegrationField } from "@/components/admin/integ
 import { requireAdmin } from "@/lib/auth/session";
 import { getAiLimitsConfig } from "@/lib/config";
 import { getDb } from "@/lib/db/client";
+import { latestWorkerChannels } from "@/lib/notifications/queries";
 import { SETTINGS_IN_ORDER, type SettingName } from "@/lib/settings/definitions";
-import { LEGACY_VARIABLES, leftoverVariables, workerSettingsMode } from "@/lib/settings/legacy-env";
 import { getSettingsKey } from "@/lib/settings/secret-box";
 import { showSetting } from "@/lib/settings/service";
 import { isTestable } from "@/lib/settings/tests";
@@ -64,7 +64,7 @@ const PAGE: Record<SettingName, { description: string; fields: IntegrationField[
     description:
       "Published notes that are not private go to this URL within a minute of each change, for example to a search index or an AI assistant. Each request is signed with the secret (see docs/webhooks.md).",
     fields: [
-      { name: "url", label: "URL", kind: "text", placeholder: "https://hooks.example.org/library" },
+      { name: "url", label: "URL", kind: "secret", placeholder: "https://hooks.example.org/library", hint: "Without a URL, the webhook is off." },
       { name: "secret", label: "Signing secret", kind: "secret", hint: "At least 16 characters, for example from openssl rand -hex 32. The receiver checks the signature with it." },
     ],
   },
@@ -82,10 +82,9 @@ const PAGE: Record<SettingName, { description: string; fields: IntegrationField[
 export default async function IntegrationsPage() {
   const user = await requireAdmin();
   const key = getSettingsKey();
-  const [views, leftovers, workerMode] = await Promise.all([
+  const [views, channels] = await Promise.all([
     Promise.all(SETTINGS_IN_ORDER.map((definition) => showSetting(getDb(), definition.name, key))),
-    leftoverVariables(getDb()),
-    workerSettingsMode(getDb()),
+    latestWorkerChannels(getDb()),
   ]);
   const fake = getAiLimitsConfig().AI_FAKE;
 
@@ -96,44 +95,31 @@ export default async function IntegrationsPage() {
         description="The services the library works with. Operators set the same settings on the server with the command cli settings (see docs/deployment.md)."
       />
 
-      {workerMode === "environment" ? (
+      {channels?.settings === "no key" ? (
         <Alert variant="destructive">
           <CircleAlert aria-hidden="true" />
-          <AlertTitle>The worker does not read these settings yet</AlertTitle>
+          <AlertTitle>The worker cannot read the secrets of these settings</AlertTitle>
           <AlertDescription>
-            It was started with a compose.yaml of version 0.3.2 or earlier, which does not pass BETTER_AUTH_SECRET to it, so it reads the old
-            variables from .env instead. Update compose.yaml on the server and run docker compose up -d (docs/deployment.md, Upgrades).
+            It was started with a compose.yaml of version 0.3.2 or earlier, which does not pass BETTER_AUTH_SECRET to it. Update compose.yaml
+            on the server and run docker compose up -d (docs/deployment.md, Upgrades).
           </AlertDescription>
         </Alert>
       ) : null}
 
-      {SETTINGS_IN_ORDER.map((definition, index) => {
-        const old = leftovers.filter(({ variable }) => variable in LEGACY_VARIABLES[definition.name]);
-        const notices = [
-          ...(old.length > 0
-            ? [
-                `${old.map(({ variable, processes }) => `${variable} (${processes.join(", ")})`).join(", ")} ${old.length === 1 ? "is" : "are"} still set on the server. ${
-                  workerMode === "environment" ? "The worker reads them until compose.yaml is updated." : "The library no longer reads them: delete them from .env."
-                }`,
-              ]
-            : []),
-          ...(definition.name === "ai" && fake ? ["AI_PROVIDER=fake is set: the worker drafts with the fake model (development and tests) and ignores this setting."] : []),
-        ];
-        return (
-          <IntegrationForm
-            key={definition.name}
-            name={definition.name}
-            title={definition.title}
-            description={PAGE[definition.name].description}
-            fields={PAGE[definition.name].fields}
-            initialView={views[index]!}
-            save={saveSettingAction}
-            test={isTestable(definition.name) ? testSettingAction : undefined}
-            testAddress={definition.name === "email" ? (user.person.workEmail ?? undefined) : undefined}
-            notices={notices}
-          />
-        );
-      })}
+      {SETTINGS_IN_ORDER.map((definition, index) => (
+        <IntegrationForm
+          key={definition.name}
+          name={definition.name}
+          title={definition.title}
+          description={PAGE[definition.name].description}
+          fields={PAGE[definition.name].fields}
+          initialView={views[index]!}
+          save={saveSettingAction}
+          test={isTestable(definition.name) ? testSettingAction : undefined}
+          testAddress={definition.name === "email" ? (user.person.workEmail ?? undefined) : undefined}
+          notices={definition.name === "ai" && fake ? ["AI_PROVIDER=fake is set: the worker drafts with the fake model (development and tests) and ignores this setting."] : []}
+        />
+      ))}
     </div>
   );
 }

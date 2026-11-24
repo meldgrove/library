@@ -59,6 +59,7 @@ it("redacts the secret fields of the settings' bodies", () => {
     apiKey: "key-logged",
     imapUrl: "imaps://u:imap-logged@imap.example.org",
     secret: "webhook-logged",
+    url: "https://hooks.example.org/url-logged",
   };
   logger.info({ body }, "a body");
   expect(output.join("")).not.toMatch(/logged/);

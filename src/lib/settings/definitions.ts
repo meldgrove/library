@@ -64,8 +64,11 @@ export interface SettingDefinition {
 
 const has = (value: unknown): boolean => (Array.isArray(value) ? value.length > 0 : value !== null && value !== undefined && value !== "");
 const text = (value: unknown): string | null => (typeof value === "string" && value ? value : null);
-const secretHint = (value: unknown): string | null =>
-  value && typeof value === "object" && "hint" in value ? (value as SealedSecret).hint : null;
+const secretHint = (value: unknown): string | null => {
+  // The webhook's URL as 0.3.3 and 0.3.4 saved it, until `sealWebhookUrl` ran.
+  if (typeof value === "string") return urlHint(value);
+  return value && typeof value === "object" && "hint" in value ? (value as SealedSecret).hint : null;
+};
 
 const httpUrl = z.url({ protocol: /^https?$/, error: "must be an http:// or https:// URL" });
 /** A base URL that paths are appended to: without a trailing slash. */
@@ -126,8 +129,7 @@ const slack: SettingDefinition = {
       hint: lastCharactersHint,
     },
   },
-  // A signing secret alone is allowed: the web process of an older Compose
-  // file imports it before the worker can import the bot token.
+  // A signing secret alone is allowed; the Slack bot then cannot answer.
   finish: () => ({}),
   status(stored) {
     const hints = [
@@ -208,7 +210,8 @@ const webhook: SettingDefinition = {
   title: "Webhook",
   label: "Webhook: the URL that gets published notes, and its signing secret",
   fields: {
-    url: { kind: "text", label: "URL", schema: httpUrl },
+    // A receiver may carry a token in its path or query.
+    url: { kind: "secret", label: "URL", schema: httpUrl, hint: urlHint },
     secret: { kind: "secret", label: "Signing secret", schema: z.string().min(16, "must be at least 16 characters"), hint: lastCharactersHint },
   },
   finish(_previous, next): FieldErrors {
@@ -221,8 +224,7 @@ const webhook: SettingDefinition = {
   },
   status(stored) {
     if (!has(stored.url)) return { state: "not set", hints: [] };
-    // Only the server: a receiver may carry a token in its path or query.
-    const hints = [`${urlHint(text(stored.url)!)}/…`, has(stored.secret) ? `secret ${secretHint(stored.secret)}` : "no secret"];
+    const hints = [secretHint(stored.url)!, has(stored.secret) ? `secret ${secretHint(stored.secret)}` : "no secret"];
     return { state: has(stored.secret) ? "set" : "incomplete", hints };
   },
 };

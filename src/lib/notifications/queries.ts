@@ -1,13 +1,20 @@
 import { and, count, desc, eq, gte, isNotNull, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
-import { note, NOTIFICATION_CHANNELS, notificationDelivery, person, type DeliveryStatus, type NotificationChannel } from "@/lib/db/schema";
+import { note, NOTIFICATION_CHANNELS, notificationDelivery, person, workerHeartbeat, type DeliveryStatus, type NotificationChannel } from "@/lib/db/schema";
 import type { LibraryEvent } from "@/lib/library/notify";
+import type { NotificationChannels } from "./types";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Events whose message is about one note and names it in the subject. */
 const NOTE_EVENTS = ["draft_ready", "review_reminder", "review_escalated"] as const satisfies readonly LibraryEvent[];
 export const HIDDEN_NOTE_SUBJECT = "A message about a private or deleted note";
+
+/** What the newest worker reported about its channels and the AI model; null until one has reported. */
+export async function latestWorkerChannels(db: Database): Promise<NotificationChannels | null> {
+  const [row] = await db.select({ channels: workerHeartbeat.channels }).from(workerHeartbeat).orderBy(desc(workerHeartbeat.beatAt)).limit(1);
+  return row?.channels ?? null;
+}
 
 /** What the admin page shows about notifications. */
 export async function getNotificationStatus(db: Database, now: Date = new Date()) {

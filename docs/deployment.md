@@ -182,7 +182,7 @@ In a running container, such as a terminal on Coolify, `cli` is on the
 
 | Command | What it does |
 |---|---|
-| `cli settings list [--json]` | Every setting: set, not set or incomplete, with hints (last characters; scheme, host and port of URLs), and the old variables still set |
+| `cli settings list [--json]` | Every setting: set, not set or incomplete, with hints (last characters; scheme, host and port of URLs) |
 | `cli settings show <name>` | The setting as JSON, as the admin page reads it |
 | `cli settings apply <name>` | Reads the JSON body from stdin, the one the admin page sends, and saves it with the page's checks. Prints what `show` prints |
 | `cli settings test <name>` | What the page's test button does: `ai`, `email` (`--to <address>`), `slack`, `email-intake` |
@@ -288,12 +288,14 @@ the release with the update button (**Install anyway…**). By hand: in
 
 The updater installs images, not files: `compose.yaml` stays as it was until
 `git pull`. Releases after 0.3.2 keep the outside services in the database
-([integrations](configuration.md#integrations)). Their image starts with an
-older `compose.yaml` too and copies the old variables into the database,
-but the worker of a `compose.yaml` up to 0.3.2 has no `BETTER_AUTH_SECRET`:
-it keeps reading the old variables, and the admin page says so. Run
-`git pull` and `docker compose up -d` to manage its settings in the library;
-then delete the variables that **Admin → Integrations** names from `.env`.
+([integrations](configuration.md#integrations)). The worker of a
+`compose.yaml` up to 0.3.2 has no `BETTER_AUTH_SECRET` and cannot read their
+secrets; the admin page says so. Run `git pull` and `docker compose up -d`.
+
+Releases after 0.3.4 no longer read the variables that held these services up
+to 0.3.2. A server that still has the values only in `.env` runs 0.3.4
+(`LIBRARY_VERSION=0.3.4`) with its `compose.yaml` (`git checkout v0.3.4`) once
+before: it copies them into the database. Then the lines can go from `.env`.
 
 ## Backups
 

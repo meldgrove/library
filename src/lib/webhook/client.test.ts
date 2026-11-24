@@ -41,6 +41,13 @@ describe("createWebhookClient", () => {
     expect((error as Error).message).toBe("Request to https://hooks.example.org failed: fetch failed");
   });
 
+  it("names only the server in errors, also when fetch quotes the URL it refuses", async () => {
+    const client = createWebhookClient({ url: "https://user:info-token@hooks.example.org/path-token?key=query-token", secret: SECRET });
+    const error = await client.send(noteRemovedPayload("n1")).catch((e: unknown) => e);
+    expect((error as Error).message).toBe("Request to https://hooks.example.org failed: Request cannot be constructed from a URL that includes credentials: https://hooks.example.org");
+    expect(String((error as Error).cause)).not.toContain("token");
+  });
+
   it.each([200, 500])("cancels the response body for HTTP %i and uses the status alone", async (status) => {
     const cancel = vi.fn();
     const response = new Response(new ReadableStream({

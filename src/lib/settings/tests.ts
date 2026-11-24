@@ -33,12 +33,14 @@ export interface TestDeps {
 }
 
 /**
- * Why the test email failed, from the status or error code only: a mail
- * server's own text could repeat the credentials it got.
+ * Why the test email failed: the mail server's own reply without the login,
+ * otherwise only the status or error code.
  */
 function emailFailure(error: unknown): string {
   if (!(error instanceof DeliveryError)) return "The email was not sent.";
-  if (error.code === "EAUTH") return "The email was not sent: the mail server refused the user or password.";
+  const { reply } = error;
+  if (error.code === "EAUTH") return `The email was not sent: the mail server refused the user or password.${reply ? ` It answered "${reply}".` : ""}`;
+  if (reply) return `The email was not sent: the mail server answered "${reply}".`;
   const status = /^(?:SMTP|MailerSend: HTTP) (\d{3})\b/.exec(error.message)?.[1];
   if (status) return `The email was not sent: the server answered ${status}.`;
   if (error.code && /^[A-Z_]+$/.test(error.code)) return `The email was not sent: the mail server could not be reached (${error.code}).`;

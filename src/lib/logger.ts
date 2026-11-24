@@ -24,6 +24,7 @@ export function createLogger(destination: DestinationStream | undefined = logTar
         "*.mailersendToken",
         "*.apiKey",
         "*.imapUrl",
+        "*.url",
       ],
       censor: "[redacted]",
     },

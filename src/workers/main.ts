@@ -42,7 +42,6 @@ import { ensureDefaultDocumentTypes, ensureDefaultTopicAreas } from "@/lib/libra
 import { requestAllPublished, syncDue } from "@/lib/webhook/sync";
 import { logger } from "@/lib/logger";
 import { retrySlackLookups, startDispatcher } from "@/lib/notifications/dispatch";
-import { importAtStart } from "@/lib/settings/legacy-env";
 import { createSettingsReader } from "@/lib/settings/runtime";
 import { getSettingsKey } from "@/lib/settings/secret-box";
 import { getStorage } from "@/lib/storage";
@@ -73,12 +72,8 @@ async function main() {
   });
   await boss.start();
 
-  // The settings of Admin › Integrations, read at each use. Old variables are
-  // copied into the database once; a worker without BETTER_AUTH_SECRET (a
-  // Compose file up to 0.3.2) reads them instead.
-  const settingsKey = getSettingsKey();
-  await importAtStart(getDb(), settingsKey, "worker");
-  const integrations = createWorkerIntegrations(createSettingsReader(getDb(), settingsKey), getNotificationConfig(), getAiLimitsConfig());
+  // The settings of Admin › Integrations, read at each use.
+  const integrations = createWorkerIntegrations(createSettingsReader(getDb(), getSettingsKey()), getNotificationConfig(), getAiLimitsConfig());
 
   // The Keycloak directory syncs every 15 minutes and once at startup, so a
   // fresh deployment has people right away. pg-boss keeps schedules in the

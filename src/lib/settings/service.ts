@@ -1,10 +1,10 @@
-import { eq, like } from "drizzle-orm";
+import { and, eq, like, sql } from "drizzle-orm";
 import { recordAudit } from "@/lib/audit";
 import { canAdminister } from "@/lib/auth/roles";
 import { CommandError, type FieldErrors } from "@/lib/commands";
 import type { Database, Transaction } from "@/lib/db/client";
-import { appSetting } from "@/lib/db/schema";
-import { isEnvironment, isOperator, type SettingsActor } from "./actor";
+import { appSetting, webhookSync } from "@/lib/db/schema";
+import { isOperator, type SettingsActor } from "./actor";
 import {
   emptyFields,
   parseBody,
@@ -16,14 +16,14 @@ import {
   type SettingState,
   type StoredFields,
 } from "./definitions";
-import { openSecret, sealSecret, SecretError, type SealedSecret } from "./secret-box";
+import { openSecret, sealSecret, SecretError, urlHint, type SealedSecret } from "./secret-box";
 
 /*
  * The one place that reads and saves the settings of Admin › Integrations.
- * The admin page's Server Actions, the operator command (`cli settings`) and
- * the import of old variables all call `applySetting`; the worker and the
- * web process read with `loadSettingValues` each time they use a setting, so
- * a save reaches them without a restart or a signal.
+ * The admin page's Server Actions and the operator command (`cli settings`)
+ * call `applySetting`; the worker and the web process read with
+ * `loadSettingValues` each time they use a setting, so a save reaches them
+ * without a restart or a signal.
  */
 
 const rowKey = (name: SettingName) => `integration.${name}`;
@@ -38,7 +38,7 @@ export async function readStored(db: Database | Transaction, name: SettingName):
  * The setting as stored, with its row locked until the transaction ends, so
  * no other save changes it in between (created empty when missing).
  */
-export async function lockStored(tx: Transaction, name: SettingName): Promise<StoredFields> {
+async function lockStored(tx: Transaction, name: SettingName): Promise<StoredFields> {
   await tx.insert(appSetting).values({ key: rowKey(name), value: {} }).onConflictDoNothing();
   const [row] = await tx.select({ value: appSetting.value }).from(appSetting).where(eq(appSetting.key, rowKey(name))).for("update");
   return { ...emptyFields(SETTINGS[name]), ...((row?.value as StoredFields | undefined) ?? {}) };
@@ -110,7 +110,7 @@ export interface SettingValues {
   unreadable: string[];
 }
 
-export function openStored(definition: SettingDefinition, stored: StoredFields, key: Buffer): SettingValues {
+export function openStored(definition: SettingDefinition, stored: StoredFields, key: Buffer | null): SettingValues {
   const values: Record<string, string | string[] | null> = {};
   const unreadable: string[] = [];
   const readable: StoredFields = { ...stored };
@@ -120,9 +120,11 @@ export function openStored(definition: SettingDefinition, stored: StoredFields, 
       values[field] = value as string | string[] | null;
       continue;
     }
-    values[field] = null;
+    // The webhook's URL as 0.3.3 and 0.3.4 saved it, until `sealWebhookUrl` ran.
+    values[field] = typeof value === "string" ? value : null;
     if (!isSealed(value)) continue;
     try {
+      if (!key) throw new SecretError("This process has no BETTER_AUTH_SECRET.");
       values[field] = openSecret(key, `${definition.name}.${field}`, value.sealed);
     } catch (error) {
       if (!(error instanceof SecretError)) throw error;
@@ -133,7 +135,7 @@ export function openStored(definition: SettingDefinition, stored: StoredFields, 
   return { state: definition.status(readable).state, values, unreadable };
 }
 
-export async function loadSettingValues(db: Database | Transaction, key: Buffer, name: SettingName): Promise<SettingValues> {
+export async function loadSettingValues(db: Database | Transaction, key: Buffer | null, name: SettingName): Promise<SettingValues> {
   return openStored(SETTINGS[name], await readStored(db, name), key);
 }
 
@@ -147,13 +149,7 @@ function refused(definition: SettingDefinition, errors: FieldErrors): CommandErr
 /** Who saved, for the audit log and `updated_by_id`. */
 function auditActor(actor: SettingsActor) {
   if (isOperator(actor)) return { actorId: null, payload: { actor: "operator", command: actor.command } };
-  if (isEnvironment(actor)) return { actorId: null, payload: { actor: "environment", process: actor.process } };
   return { actorId: actor.personId, payload: {} };
-}
-
-export interface ApplyOptions {
-  /** For the import: the old variables a save came from (audit only). */
-  variables?: string[];
 }
 
 /**
@@ -167,10 +163,9 @@ export async function applySetting(
   name: SettingName,
   body: unknown,
   actor: SettingsActor,
-  options: ApplyOptions = {},
 ): Promise<Record<string, unknown>> {
   const definition = SETTINGS[name];
-  if (!isOperator(actor) && !isEnvironment(actor) && !canAdminister(actor.role)) throw new CommandError("forbidden", "Only admins change the integrations.");
+  if (!isOperator(actor) && !canAdminister(actor.role)) throw new CommandError("forbidden", "Only admins change the integrations.");
   const { changes, errors } = parseBody(definition, body);
   if (Object.keys(errors).length > 0) throw refused(definition, errors);
   if (!key) {
@@ -200,10 +195,29 @@ export async function applySetting(
       .where(eq(appSetting.key, rowKey(name)));
     await recordAudit(tx, {
       actorId: who.actorId,
-      action: isEnvironment(actor) ? "setting.imported" : "setting.changed",
+      action: "setting.changed",
       subjectType: "setting",
-      payload: { setting: name, fields: changed, ...(options.variables ? { variables: options.variables } : {}), ...who.payload },
+      payload: { setting: name, fields: changed, ...who.payload },
     });
     return { ...viewOf(definition, next), state: statusOf(definition, next, key).state };
+  });
+}
+
+/**
+ * Seals the webhook's URL that 0.3.3 and 0.3.4 saved as plain text. The web
+ * process calls it at start; returns whether there was one to seal.
+ */
+export async function sealWebhookUrl(db: Database, key: Buffer): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const stored = await lockStored(tx, "webhook");
+    // Their delivery errors quote a URL with user info, which fetch refuses; today's name only the server.
+    await tx
+      .update(webhookSync)
+      .set({ lastError: null })
+      .where(and(like(webhookSync.lastError, "%a URL that includes credentials%"), sql`${webhookSync.lastError} !~ '^Request to (\\S+) failed: .* credentials: \\1$'`));
+    if (typeof stored.url !== "string") return false;
+    const url: SealedSecret = { sealed: sealSecret(key, "webhook.url", stored.url), hint: urlHint(stored.url) };
+    await tx.update(appSetting).set({ value: { ...stored, url } }).where(eq(appSetting.key, rowKey("webhook")));
+    return true;
   });
 }

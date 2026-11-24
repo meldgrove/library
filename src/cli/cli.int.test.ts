@@ -2,9 +2,8 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
-import { auditEvent } from "@/lib/db/schema";
+import { auditEvent, workerHeartbeat } from "@/lib/db/schema";
 import { SETTING_NAMES, type SettingName } from "@/lib/settings/definitions";
-import { reportLeftovers } from "@/lib/settings/legacy-env";
 import { deriveSettingsKey } from "@/lib/settings/secret-box";
 import type { TestDeps } from "@/lib/settings/tests";
 import { connectTestDatabase } from "../../tests/integration/db";
@@ -21,10 +20,10 @@ const BODIES: Record<SettingName, Record<string, unknown>> = {
   email: { provider: "mailersend", mailersendToken: "mlsn.cli-token-0123456789", from: "library@example.org" },
   slack: { botToken: "xoxb-cli-bot-token-0123-abcd" },
   digest: { emailTo: "all-staff@example.org" },
-  webhook: { url: "https://hooks.example.org/library", secret: "cli-webhook-secret-0123456789" },
+  webhook: { url: "https://hooks.example.org/cli-path-token-3333", secret: "cli-webhook-secret-0123456789" },
   "email-intake": { imapUrl: "imaps://intake:cli-imap-pass-4444@imap.example.org:993", domains: ["example.org"] },
 };
-const SECRETS = ["sk-ant-cli-key-0123456789-wxyz", "mlsn.cli-token-0123456789", "xoxb-cli-bot-token-0123-abcd", "cli-webhook-secret-0123456789", "cli-imap-pass-4444"];
+const SECRETS = ["sk-ant-cli-key-0123456789-wxyz", "mlsn.cli-token-0123456789", "xoxb-cli-bot-token-0123-abcd", "cli-path-token-3333", "cli-webhook-secret-0123456789", "cli-imap-pass-4444"];
 
 /** Runs `cli <args>` in this process, with `stdin` as the body. */
 async function cli(args: string[], options: { stdin?: string; withoutKey?: boolean; testDeps?: TestDeps } = {}) {
@@ -72,11 +71,11 @@ describe("cli settings", () => {
       "email         set         MailerSend token …6789, from Meldgrove Library <library@example.org>",
       "slack         set         bot token …abcd, no signing secret (the Slack bot is off)",
       "digest        set         email all-staff@example.org",
-      "webhook       set         https://hooks.example.org/…, secret …6789",
+      "webhook       set         https://hooks.example.org, secret …6789",
       "email-intake  set         imaps://…@imap.example.org:993, mailbox INBOX, domains example.org",
     ]);
-    const rows = JSON.parse((await cli(["settings", "list", "--json"])).out) as { name: string; state: string; oldVariables: unknown[] }[];
-    expect(rows.map(({ name, state, oldVariables }) => [name, state, oldVariables])).toEqual(SETTING_NAMES.map((name) => [name, "set", []]));
+    const rows = JSON.parse((await cli(["settings", "list", "--json"])).out) as { name: string; state: string }[];
+    expect(rows.map(({ name, state }) => [name, state])).toEqual(SETTING_NAMES.map((name) => [name, "set"]));
   });
 
   it("records the operator and the command in the audit log", async () => {
@@ -130,10 +129,10 @@ describe("cli settings", () => {
     expect((await cli(["settings", "list"], { withoutKey: true })).code).toBe(0);
   });
 
-  it("names the old variables still set, and says they can be deleted", async () => {
-    await reportLeftovers(db, "worker", { SMTP_URL: "smtp://mail.example.org", MAIL_FROM: "a@example.org" });
-    const list = await cli(["settings", "list"]);
-    expect(list.out).toContain("old variables still set: SMTP_URL (worker), MAIL_FROM (worker). Delete them from .env: the settings are in the database");
+  it("says when the worker cannot read the settings, and what to do", async () => {
+    expect((await cli(["settings", "list"])).out).not.toContain("worker");
+    await db.insert(workerHeartbeat).values({ workerId: "w", startedAt: new Date(), beatAt: new Date(), channels: { slack: "off", email: "off", settings: "no key" } });
+    expect((await cli(["settings", "list"])).out).toContain("The worker has no BETTER_AUTH_SECRET (a compose.yaml of 0.3.2 or earlier): it cannot read the secrets of these settings. Update compose.yaml.");
   });
 });
 
@@ -157,7 +156,7 @@ describe("the command as a process", () => {
     const applied = await run(["settings", "apply", "webhook"], JSON.stringify(BODIES.webhook));
     outputs.push(applied.out, applied.err);
     expect(applied.code).toBe(0);
-    expect(JSON.parse(applied.out)).toMatchObject({ state: "set", secret: { saved: true, hint: "…6789" } });
+    expect(JSON.parse(applied.out)).toEqual({ state: "set", url: { saved: true, hint: "https://hooks.example.org" }, secret: { saved: true, hint: "…6789" } });
     const failed = await run(["settings", "apply", "webhook"], JSON.stringify({ url: "not a url" }));
     outputs.push(failed.out, failed.err);
     expect(failed).toMatchObject({ code: 1, out: "" });

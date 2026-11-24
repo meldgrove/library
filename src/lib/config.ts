@@ -5,8 +5,7 @@ import { z } from "zod";
  * before it can read the database, and limits that admins must not change.
  * Outside services (Slack, email, the AI provider, the webhook, the intake
  * mailbox) are set on the admin page or with `cli settings`
- * (`src/lib/settings/`); their old variables are read only by
- * `src/lib/settings/legacy-env.ts`.
+ * (`src/lib/settings/`).
  *
  * Each process validates only what it needs: `migrate` needs the database,
  * the worker also needs the directory and storage, and the web process
@@ -189,8 +188,7 @@ const uploadSchema = z.object({
 /**
  * Limits on the AI model, which admins set up in the library. AI_PROVIDER
  * here only switches on `fake`, which drafts from the text without a model
- * (development and tests); other values are old settings that the library
- * copies into the database once (`src/lib/settings/legacy-env.ts`).
+ * (development and tests); other values have no effect.
  */
 const aiLimitsSchema = z
   .object({
@@ -205,7 +203,7 @@ const aiLimitsSchema = z
  * The root key of the settings in the database: their secrets are sealed
  * with a key derived from BETTER_AUTH_SECRET (`src/lib/settings/secret-box.ts`).
  * The web process requires it (`authSchema`); Compose files up to 0.3.2 do
- * not pass it to the worker, which then reads the old variables instead.
+ * not pass it to the worker, which then cannot read the secrets.
  */
 const settingsSecretSchema = z
   .object({

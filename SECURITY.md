@@ -21,8 +21,9 @@ Security fixes go into the latest release and the `main` branch.
   It also seals the secrets of the integrations (AI key, email, Slack,
   webhook, intake mailbox) in the database, so keep it out of the database
   backups.
-- Admins see integration secrets only as hints. `cli settings` reads secrets
-  only from stdin, never from arguments, and prints none.
+- Admins see integration secrets, the webhook's URL among them, only as
+  hints. `cli settings` reads secrets only from stdin, never from arguments,
+  and prints none.
 - Serve the library over HTTPS only, and set `LIBRARY_BASE_URL` to that HTTPS
   URL.
 - The Keycloak service account needs only the `view-users` role of

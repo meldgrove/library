@@ -32,3 +32,17 @@ export function safeSmtpUrl(value: string): string {
   // Serialized, so nodemailer's parser reads the URL that was checked here.
   return url.href;
 }
+
+/** The login in a URL of `safeSmtpUrl`: user and password as written and decoded, and both as AUTH PLAIN sends them. */
+export function smtpLogin(value: string): string[] {
+  // Not read with `URL`: nodemailer also takes a URL without the slashes, where `URL` sees no login.
+  const [, username = "", password = ""] = /^smtps?:(?:\/\/)?([^/?#:]*):?([^/?#]*)@/i.exec(value) ?? [];
+  const [user, pass] = [username, password].map((part) => {
+    try {
+      return decodeURIComponent(part);
+    } catch {
+      return part;
+    }
+  }) as [string, string];
+  return [username, password, user, pass, ...(user && pass ? [`\0${user}\0${pass}`] : [])];
+}

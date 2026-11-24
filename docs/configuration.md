@@ -109,9 +109,10 @@ PDFs without a text layer (scans) need OCR. The Docker image includes
 Set under **Admin → Integrations**, or with `cli settings apply <name>`
 ([deployment](deployment.md#settings-from-the-command-line)). Both run the
 same checks and write the same audit entry. Secrets (keys, tokens,
-passwords) are sealed with a key derived from `BETTER_AUTH_SECRET` and never
-shown again: the page and the command show at most their last four
-characters, or only the scheme, host and port of a URL. The web process and the worker
+passwords, and the webhook's URL, which may hold a token) are sealed with a
+key derived from `BETTER_AUTH_SECRET` and never shown again: the page and the
+command show at most their last four characters, or only the scheme, host and
+port of a URL. The web process and the worker
 read the settings at each use, so a change applies within a minute, without
 a restart. A setting that is off does nothing.
 
@@ -184,7 +185,8 @@ last attempt tries the other channel too.
 | `fromName` | Sender name; `Meldgrove Library` when empty |
 
 The test sends one email to an address the admin enters (`cli settings test
-email --to <address>`).
+email --to <address>`). When the mail server refuses, the test shows its
+answer, without the user and password.
 
 `NOTIFICATION_TRANSPORT` (environment, default `live` in production,
 otherwise `console`): `console` only logs Slack messages and emails instead
@@ -240,7 +242,7 @@ one only the team is in.
 
 | Field | Value |
 |---|---|
-| `url` | HTTPS endpoint that receives published notes; `null` switches the webhook off and removes the secret |
+| `url` | HTTPS endpoint that receives published notes (secret); `null` switches the webhook off and removes the signing secret |
 | `secret` | At least 16 characters (secret); required with a URL. Signs every request: `openssl rand -hex 32` |
 
 See [webhook](webhooks.md) for the payload and the signature.
@@ -267,30 +269,6 @@ DKIM and SPF results (Google Workspace, Microsoft 365, and most providers
 do). A message is taken only when it shows `dkim=pass` or `spf=pass` for the
 sender's domain, and only from people with access, by their `work_email`.
 Answers go out by email (or Slack), so set up [email](#email).
-
-### Variables up to 0.3.2
-
-Up to 0.3.2, these settings were environment variables. A process that sees
-one of them copies it into the database once, into a field that has no
-value yet, and writes an audit entry; afterwards the database wins and the
-variable is ignored. **Admin → Integrations**, `cli settings list`, and one
-warning in the log at start name the variables that are still set, so they
-can be deleted from `.env`.
-
-| Setting | Variables |
-|---|---|
-| `ai` | `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL`, `AI_BASE_URL` |
-| `email` | `SMTP_URL`, `MAILERSEND_API_TOKEN`, `MAIL_FROM`, `MAIL_FROM_NAME` |
-| `slack` | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET` |
-| `digest` | `DIGEST_SLACK_CHANNEL_ID`, `DIGEST_EMAIL_TO` |
-| `webhook` | `WEBHOOK_URL`, `WEBHOOK_SECRET` |
-| `email-intake` | `EMAIL_INTAKE_IMAP_URL`, `EMAIL_INTAKE_DOMAINS`, `EMAIL_INTAKE_MAILBOX`, `EMAIL_INTAKE_DONE_MAILBOX` |
-
-A `compose.yaml` of 0.3.2 or earlier does not pass `BETTER_AUTH_SECRET` to the
-worker. Such a worker cannot open the stored secrets: it reads these
-variables, as before, and the admin pages say so. Update `compose.yaml`
-([upgrades](deployment.md#upgrades)) to manage the worker's settings in the
-library.
 
 ## Error reporting (web, worker)
 
