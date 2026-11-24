@@ -1,6 +1,6 @@
 import nodemailer from "nodemailer";
 import { logger } from "@/lib/logger";
-import type { EmailValues } from "@/lib/settings/runtime";
+import type { EmailValues, UnreadableChannels } from "@/lib/settings/runtime";
 import { isPermanentSlackError, isPermanentSlackStatus } from "@/lib/slack/errors";
 import type { ChannelMode, NotificationChannels } from "./types";
 
@@ -31,8 +31,11 @@ export class DeliveryError extends Error {
 /** HTTP statuses that may pass: timeouts, rate limits, and server errors. Other 4xx answers are permanent. */
 const temporaryStatus = (status: number) => status === 408 || status === 429 || status >= 500;
 
+/** "unreadable": the channel is set up, but its saved secret cannot be read, so every send fails. */
+export type TransportMode = "live" | "console" | "unreadable";
+
 export interface SlackTransport {
-  mode: "live" | "console";
+  mode: TransportMode;
   /** The Slack user ID for a work email, or null if there is no such (active) user. */
   lookupUserByEmail(email: string): Promise<string | null>;
   /** Sends a direct message from the app to a Slack user. */
@@ -49,8 +52,8 @@ export interface Email {
 }
 
 export interface EmailTransport {
-  mode: "live" | "console";
-  /** "smtp", "mailersend", or "console". */
+  mode: TransportMode;
+  /** "smtp", "mailersend", "console", or "unreadable". */
   kind: string;
   send(email: Email): Promise<void>;
 }
@@ -62,9 +65,9 @@ export interface Transports {
   baseUrl: string;
 }
 
-/** What the admin page shows for each channel. */
+/** What the admin page shows for each channel: one whose secret cannot be read counts as off. */
 export function channelModes(transports: Transports): NotificationChannels {
-  const mode = (t: { mode: "live" | "console" } | undefined): ChannelMode => t?.mode ?? "off";
+  const mode = (t: { mode: TransportMode } | undefined): ChannelMode => (!t || t.mode === "unreadable" ? "off" : t.mode);
   return { slack: mode(transports.slack), email: mode(transports.email) };
 }
 
@@ -227,6 +230,31 @@ export function createConsoleEmailTransport(): EmailTransport {
   };
 }
 
+/*
+ * A channel that is set up, but whose saved secret cannot be read (a changed
+ * BETTER_AUTH_SECRET). It is not off: a message goes out on the other channel
+ * or is tried again, and ends as failed, not skipped.
+ */
+const secretUnreadable = (secret: string) =>
+  new DeliveryError(`${secret} cannot be read: enter it again under Admin › Integrations.`, { permanent: true });
+
+function createUnreadableSlackTransport(): SlackTransport {
+  const fail = async (): Promise<never> => {
+    throw secretUnreadable("The Slack bot token");
+  };
+  return { mode: "unreadable", lookupUserByEmail: fail, postMessage: fail };
+}
+
+function createUnreadableEmailTransport(secret: string): EmailTransport {
+  return {
+    mode: "unreadable",
+    kind: "unreadable",
+    async send() {
+      throw secretUnreadable(secret);
+    },
+  };
+}
+
 /** The live email transport of the `email` setting. */
 export function createEmailTransport(email: EmailValues): EmailTransport {
   return email.provider === "smtp"
@@ -236,7 +264,8 @@ export function createEmailTransport(email: EmailValues): EmailTransport {
 
 /**
  * The transports for the current settings. A channel without its settings is
- * off; with NOTIFICATION_TRANSPORT=console both only log.
+ * off, and one whose secret is in `unreadable` fails each send; with
+ * NOTIFICATION_TRANSPORT=console both only log.
  */
 export function createTransports(options: {
   mode: "live" | "console";
@@ -244,6 +273,8 @@ export function createTransports(options: {
   baseUrl: string;
   slackToken: string | null;
   email: EmailValues | null;
+  /** Saved secrets that could not be opened, if the channel needs them. */
+  unreadable?: UnreadableChannels;
 }): Transports {
   if (options.mode === "console") {
     return {
@@ -254,8 +285,8 @@ export function createTransports(options: {
   }
   return {
     baseUrl: options.baseUrl,
-    slack: options.slackToken ? createSlackTransport(options.slackToken) : undefined,
-    email: options.email ? createEmailTransport(options.email) : undefined,
+    slack: options.slackToken ? createSlackTransport(options.slackToken) : options.unreadable?.slack ? createUnreadableSlackTransport() : undefined,
+    email: options.email ? createEmailTransport(options.email) : options.unreadable?.email ? createUnreadableEmailTransport(options.unreadable.email) : undefined,
   };
 }
 

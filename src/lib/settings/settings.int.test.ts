@@ -1,7 +1,9 @@
 import { eq, like } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { CommandError } from "@/lib/commands";
-import { appSetting, auditEvent } from "@/lib/db/schema";
+import { appSetting, auditEvent, notificationDelivery } from "@/lib/db/schema";
+import { emailToAddress, postToChannel } from "@/lib/library/notify";
+import { dispatchDue } from "@/lib/notifications/dispatch";
 import { DeliveryError, type EmailTransport } from "@/lib/notifications/transports";
 import { createWorkerIntegrations } from "@/workers/integrations";
 import { connectTestDatabase } from "../../../tests/integration/db";
@@ -121,6 +123,28 @@ describe("running processes", () => {
     expect((await integrations.transports()).email?.kind).toBe("mailersend");
     await applySetting(db, key, "ai", { model: "claude-sonnet-5-5" }, seed.actors.amy);
     expect((await integrations.draftModel())?.name).toBe("claude-sonnet-5-5");
+  });
+});
+
+describe("a changed BETTER_AUTH_SECRET", () => {
+  it("makes messages wait for the secrets to be entered again, and skips none", async () => {
+    await applySetting(db, key, "email", BODIES.email, seed.actors.amy);
+    await applySetting(db, key, "slack", BODIES.slack, seed.actors.amy);
+    const message = { subject: "Digest", title: "Weekly library digest", text: "1 new note.", path: "/" };
+    await postToChannel(db, { event: "weekly_digest", key: "2026-W47:all", channelId: "C0123456789", message });
+    await emailToAddress(db, { event: "weekly_digest", key: "2026-W47:all", address: "all-staff@example.org", message });
+    const otherKey = deriveSettingsKey("o".repeat(32));
+    const integrations = createWorkerIntegrations(createSettingsReader(db, otherKey), { NOTIFICATION_TRANSPORT: "live", LIBRARY_BASE_URL: "https://library.example.org" }, { AI_FAKE: false, AI_DAILY_LIMIT: 10, AI_TIMEOUT_MS: 1_000 });
+    expect(await integrations.channels()).toMatchObject({ slack: "off", email: "off" });
+    expect(await dispatchDue(db, await integrations.transports())).toEqual({ sent: 0, skipped: 0, retry: 2, failed: 0 });
+    const rows = await db.select().from(notificationDelivery);
+    expect(rows.map((row) => [row.channel, row.status, row.lastError]).sort()).toEqual([
+      ["email_address", "pending", "The SMTP URL cannot be read: enter it again under Admin › Integrations."],
+      ["slack_channel", "pending", "The Slack bot token cannot be read: enter it again under Admin › Integrations."],
+    ]);
+    // A channel that is turned off skips its messages as before.
+    await applySetting(db, otherKey, "email", { provider: null }, seed.actors.amy);
+    expect((await integrations.transports()).email).toBeUndefined();
   });
 });
 

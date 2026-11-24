@@ -70,6 +70,21 @@ export function emailValues({ state, values }: SettingValues): EmailValues | nul
   return null;
 }
 
+/** Which channels are set up, but have a saved secret that cannot be read; for email, which one. */
+export interface UnreadableChannels {
+  slack: boolean;
+  email: string | null;
+}
+
+export function unreadableChannels(slack: SettingValues, email: SettingValues): UnreadableChannels {
+  const { provider } = email.values;
+  const secret = provider === "smtp" ? "smtpUrl" : provider === "mailersend" ? "mailersendToken" : null;
+  return {
+    slack: slack.unreadable.includes("botToken"),
+    email: secret && str(email.values.from) && email.unreadable.includes(secret) ? (secret === "smtpUrl" ? "The SMTP URL" : "The MailerSend API token") : null,
+  };
+}
+
 export interface DigestValues {
   slackChannelId?: string;
   emailTo?: string;
