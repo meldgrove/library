@@ -178,7 +178,7 @@ last attempt tries the other channel too.
 | Field | Value |
 |---|---|
 | `provider` | `smtp` or `mailersend`; `null` switches email off and removes the secret. Only the provider in use keeps its secret |
-| `smtpUrl` | With `smtp` (secret): `smtp://user:password@host:587` (STARTTLS) or `smtps://user:password@host:465`. Percent-encode special characters in the password |
+| `smtpUrl` | With `smtp` (secret): `smtp://user:password@host:587` (STARTTLS) or `smtps://user:password@host:465`. Percent-encode special characters in the password. After `?`, only `requireTLS`, `ignoreTLS`, `name`, `authMethod`, `pool`, `maxConnections`, `maxMessages`, `connectionTimeout`, `greetingTimeout`, `socketTimeout`, `tls.rejectUnauthorized` and `tls.servername` are accepted |
 | `mailersendToken` | With `mailersend` (secret): a MailerSend API token with email sending access |
 | `from` | Sender address; required |
 | `fromName` | Sender name; `Meldgrove Library` when empty |

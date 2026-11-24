@@ -7,6 +7,7 @@ import type { NotificationChannels } from "@/lib/notifications/types";
 import { environment } from "./actor";
 import { emptyFields, parseBody, SETTINGS, SETTINGS_IN_ORDER, type SettingName, type StoredFields } from "./definitions";
 import { applySetting, lockStored, type SettingValues } from "./service";
+import { otherSmtpOptions, safeSmtpUrl } from "./smtp-url";
 
 /*
  * The variables that held these settings up to 0.3.2. A process that sees one
@@ -68,7 +69,10 @@ function bodyFrom(name: SettingName, env: Env, variables: string[]): Record<stri
   for (const variable of variables) {
     const field = LEGACY_VARIABLES[name][variable]!;
     const raw = value(env, variable)!;
-    body[field] = field === "domains" ? raw.split(/[\s,;]+/).filter(Boolean) : raw;
+    if (field === "domains") body[field] = raw.split(/[\s,;]+/).filter(Boolean);
+    // Options that no longer count are left out, so the rest of the URL keeps working.
+    else if (field === "smtpUrl" && URL.canParse(raw)) body[field] = otherSmtpOptions(raw).length > 0 ? safeSmtpUrl(raw) : raw;
+    else body[field] = raw;
   }
   // The old variables named the email provider by which one was set.
   if (name === "email" && !("provider" in body)) {

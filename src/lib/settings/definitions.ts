@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { FieldErrors } from "@/lib/commands";
 import { SLACK_CHANNEL_ID_PATTERN } from "@/lib/library/constants";
 import { lastCharactersHint, urlHint, type SealedSecret } from "./secret-box";
+import { otherSmtpOptions, SMTP_URL_OPTIONS } from "./smtp-url";
 
 /*
  * The settings of Admin › Integrations: what each one holds, how a body
@@ -90,13 +91,17 @@ const imapUrl = z.string().superRefine((value, context) => {
 });
 
 const smtpUrl = z.string().superRefine((value, context) => {
-  let protocol = "";
+  let url: URL | undefined;
   try {
-    protocol = new URL(value).protocol;
+    url = new URL(value);
   } catch {
     // reported below
   }
-  if (protocol !== "smtp:" && protocol !== "smtps:") context.addIssue({ code: "custom", message: "must be an smtp:// or smtps:// URL" });
+  if (url?.protocol !== "smtp:" && url?.protocol !== "smtps:") {
+    context.addIssue({ code: "custom", message: "must be an smtp:// or smtps:// URL" });
+  } else if (otherSmtpOptions(value).length > 0) {
+    context.addIssue({ code: "custom", message: `may only have these options after "?": ${SMTP_URL_OPTIONS.join(", ")}` });
+  }
 });
 
 // ---------------------------------------------------------------------------

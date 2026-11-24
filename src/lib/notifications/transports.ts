@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import { logger } from "@/lib/logger";
 import type { EmailValues, UnreadableChannels } from "@/lib/settings/runtime";
+import { safeSmtpUrl } from "@/lib/settings/smtp-url";
 import { isPermanentSlackError, isPermanentSlackStatus } from "@/lib/slack/errors";
 import type { ChannelMode, NotificationChannels } from "./types";
 
@@ -178,8 +179,9 @@ export function createSmtpTransport(
   createTransport: typeof nodemailer.createTransport = nodemailer.createTransport,
 ): EmailTransport {
   // The URL sets host, port, TLS, and credentials; the timeouts apply on top.
+  // Nodemailer would also take options that run a program from it: those are left out.
   const transporter = createTransport({
-    url: options.url,
+    url: safeSmtpUrl(options.url),
     connectionTimeout: TIMEOUT_MS,
     greetingTimeout: TIMEOUT_MS,
     socketTimeout: TIMEOUT_MS,

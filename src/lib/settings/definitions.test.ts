@@ -64,6 +64,14 @@ describe("email", () => {
     expect(apply("email", {}, { mailersendToken: "mlsn.0123456789abcdef", from: "a@example.org" }).errors.provider).toMatch(/must be "mailersend"/);
     expect(apply("email", {}, { provider: "smtp", smtpUrl: "https://mail.example.org", from: "a@example.org" }).errors.smtpUrl).toBe("must be an smtp:// or smtps:// URL");
   });
+
+  it("refuses SMTP URL options that make nodemailer do something else, such as run a program", () => {
+    const problem = (smtpUrl: string) => apply("email", {}, { provider: "smtp", smtpUrl, from: "a@example.org" }).errors.smtpUrl;
+    for (const options of ["sendmail=true&path=/usr/bin/id", "%73endmail=true", "SENDMAIL=true", "streamTransport=true", "jsonTransport=1", "logger=true", "proxy=http://proxy.example.org", "tls.key=x", "requireTLS=true&path=/x"]) {
+      expect(problem(`smtp://user:pw@mail.example.org:587?${options}`), options).toMatch(/^may only have these options after "\?": requireTLS, /);
+    }
+    expect(problem("smtp://user:pw@mail.example.org:587?requireTLS=true&name=library.example.org&tls.rejectUnauthorized=false")).toBeUndefined();
+  });
 });
 
 describe("ai", () => {
