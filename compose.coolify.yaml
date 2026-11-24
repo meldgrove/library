@@ -18,8 +18,10 @@ x-app-environment: &app-environment
   DATABASE_URL: ${DATABASE_URL:?}
   TZ: ${TZ:-UTC}
   LOG_LEVEL: ${LOG_LEVEL:-info}
-  # The update button for admins asks `updater` (docs/configuration.md).
+  # The update button for admins asks `updater` (docs/configuration.md),
+  # with UPDATER_TOKEN (openssl rand -hex 32), which the updater then requires.
   UPDATER_URL: ${UPDATER_URL:-http://updater:8080}
+  UPDATER_TOKEN: ${UPDATER_TOKEN:-}
 
 x-directory-environment: &directory-environment
   LIBRARY_BASE_URL: ${LIBRARY_BASE_URL:?}
@@ -155,7 +157,8 @@ services:
 
   # Automatic updates and the update button (docs/coolify.md). It checks for
   # new versions every hour and answers the library on port 8080 of the
-  # Compose network; never publish that port, the API has no authentication.
+  # Compose network; never publish that port. With UPDATER_TOKEN set, its API
+  # takes only requests that carry it, as the library's do.
   # With UPDATE_DEPLOY_HOOK_URL set, it calls Coolify's deploy link when the
   # tag in LIBRARY_VERSION points to a new image: the tag decides what
   # installs, so admins cannot choose the channel in the library.
@@ -166,6 +169,8 @@ services:
     environment:
       IMAGE: *image
       VERSION_VARIABLE: LIBRARY_VERSION
+      # Empty: the API takes requests from anything on the Compose network.
+      API_TOKEN: ${UPDATER_TOKEN:-}
       DEPLOY_HOOK_URL: ${UPDATE_DEPLOY_HOOK_URL:-}
       DEPLOY_HOOK_TOKEN: ${UPDATE_DEPLOY_HOOK_TOKEN:-}
       # A stable release installs once it has been out this long, and only
@@ -203,10 +208,5 @@ services:
 volumes:
   # Only used with STORAGE_DRIVER=filesystem.
   originals:
-  # Automatic updates and the update button (docs/coolify.md). It checks for
-  # new versions every hour and answers the library on port 8080 of the
-  # Compose network; never publish that port, the API has no authentication.
-  # With UPDATE_DEPLOY_HOOK_URL set, it calls Coolify's deploy link when the
-  # tag in LIBRARY_VERSION points to a new image: the tag decides what
-  # installs, so admins cannot choose the channel in the library.
+  # The updater's state.
   updater:
