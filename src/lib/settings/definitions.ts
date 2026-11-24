@@ -221,7 +221,8 @@ const webhook: SettingDefinition = {
   },
   status(stored) {
     if (!has(stored.url)) return { state: "not set", hints: [] };
-    const hints = [text(stored.url)!, has(stored.secret) ? `secret ${secretHint(stored.secret)}` : "no secret"];
+    // Only the server: a receiver may carry a token in its path or query.
+    const hints = [`${urlHint(text(stored.url)!)}/…`, has(stored.secret) ? `secret ${secretHint(stored.secret)}` : "no secret"];
     return { state: has(stored.secret) ? "set" : "incomplete", hints };
   },
 };
