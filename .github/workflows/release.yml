@@ -55,8 +55,9 @@ jobs:
       title: Meldgrove Library
       description: A self-hosted shared reading library with AI-drafted, human-checked source notes.
       # Releases upload their source maps to this Sentry project, with the
-      # SENTRY_AUTH_TOKEN secret (an organization token).
-      sentry_org: meldgrove
+      # SENTRY_AUTH_TOKEN secret (an organization token). The organization's
+      # ID, not its slug: a renamed slug stops resolving, the ID does not.
+      sentry_org: "4511987937705984"
       sentry_project: library
     secrets:
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
