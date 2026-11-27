@@ -42,7 +42,7 @@ services:
   # An S3-compatible server for trying the S3 storage driver. The tests
   # create their bucket; MinIO no longer publishes images.
   s3:
-    image: rustfs/rustfs:1.0.5
+    image: rustfs/rustfs:1.0.6
     command: ["/data"]
     environment:
       RUSTFS_ACCESS_KEY: library
@@ -55,7 +55,7 @@ services:
       - s3-data:/data
 
   mailpit:
-    image: axllent/mailpit:v1.33
+    image: axllent/mailpit:v1.34
     ports:
       - "127.0.0.1:1026:1025"
       - "127.0.0.1:8026:8025"
